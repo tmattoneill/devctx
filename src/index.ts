@@ -1167,6 +1167,59 @@ server.registerTool(
 );
 
 // ============================================================
+// TOOL: devctx_help
+// ============================================================
+server.registerTool(
+  "devctx_help",
+  {
+    title: "Help — Slash Commands & Tools",
+    description: "Show available devctx slash commands and what they do. Run this when the user asks for help with devctx.",
+    inputSchema: {},
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async () => {
+    const help = [
+      "# devctx — Slash Commands",
+      "",
+      "| Command | What it does |",
+      "|---------|-------------|",
+      "| `/devctx-init` | Initialize devctx for the current project. Detects language, framework, sets up tracking. |",
+      "| `/devctx-whereami` | Full overview — branch, focus, recent commits, todos, activity. |",
+      "| `/devctx-status` | Dashboard view — vitals, branches, todos, last actions, AI recap. |",
+      "| `/devctx-summary` | AI-generated narrative summary of the project state. |",
+      "| `/devctx-focus` | Update what you're currently working on. Text after the command becomes the focus. |",
+      "| `/devctx-todos` | List todos. Also handles adding, updating, or removing if you say so. |",
+      "| `/devctx-git` | Git summary — recent commits, branches, remote info. |",
+      "| `/devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
+      "| `/devctx-start` | Resume tracking (happens automatically on new sessions). |",
+      "| `/devctx-stop` | Pause tracking manually. Read-only tools still work. |",
+      "| `/devctx-help` | This help screen. |",
+      "",
+      "## How it works",
+      "",
+      "devctx tracks project context in a `.devctx/` directory (gitignored) and syncs key info to `CLAUDE.md`.",
+      "Git hooks capture commits, branch switches, merges, and pushes from any terminal.",
+      "On new sessions, tracking resumes automatically and Claude greets you with project context.",
+      "Use `/devctx-goodbye` when you're done to save a session record for next time.",
+      "",
+      "## Tips",
+      "",
+      "- `/devctx-status` is the best single command for getting oriented.",
+      "- After `/devctx-goodbye`, suggested todos carry forward to the next session.",
+      "- You don't need to manually log commits or pushes — git hooks handle that.",
+      "- Branch notes (`devctx_branch_notes_save`) are great for documenting what a branch is for.",
+    ].join("\n");
+
+    return { content: [{ type: "text" as const, text: help }] };
+  }
+);
+
+// ============================================================
 // Start server
 // ============================================================
 
