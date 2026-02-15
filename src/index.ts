@@ -84,19 +84,19 @@ function autoSessionStart(repoRoot: string): void {
 
   // Build greeting for the first tool response
   const state = getProjectState(repoRoot);
-  const lines: string[] = [`👋 **devctx is tracking this project.**`];
-  if (state.currentFocus) lines.push(`🎯 Focus: ${state.currentFocus}`);
-  lines.push(`🌿 Branch: \`${branch}\``);
-  if (wasResumed) lines.push(`▶️ Tracking resumed from last session.`);
+  const lines: string[] = [`**devctx is tracking this project.**`];
+  if (state.currentFocus) lines.push(`Focus: ${state.currentFocus}`);
+  lines.push(`Branch: \`${branch}\``);
+  if (wasResumed) lines.push(`Tracking resumed from last session.`);
 
   // Check for suggested todos from last goodbye
   const todos = getTodos(repoRoot);
   const suggested = todos.filter(t => t.source === "suggested" && t.status === "todo");
   if (suggested.length > 0) {
-    lines.push(`📋 ${suggested.length} suggested todo(s) from last session — run \`devctx_todo_list\` to review.`);
+    lines.push(`${suggested.length} suggested todo(s) from last session — run \`devctx_todo_list\` to review.`);
   }
 
-  lines.push(`💡 Use \`/devctx-goodbye\` when you're done to save session context.`);
+  lines.push(`Use \`/devctx-goodbye\` when you're done to save session context.`);
   pendingGreeting = lines.join("\n");
 }
 
