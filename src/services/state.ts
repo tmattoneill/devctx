@@ -315,7 +315,9 @@ export function updateClaudeMd(repoRoot: string, branch: string, state: ProjectS
 function builddevctxSection(branch: string, state: ProjectState, activeTodos: Todo[]): string {
   const lines: string[] = [
     "<!-- DEVCTX:START -->",
-    "## 🔍 Project Context (auto-updated by devctx)",
+    "## Project Context (auto-updated by devctx)",
+    "",
+    "> **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.",
     "",
   ];
 
@@ -339,9 +341,9 @@ function builddevctxSection(branch: string, state: ProjectState, activeTodos: To
     const sorted = [...activeTodos].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
     for (const todo of sorted) {
-      const statusIcon = todo.status === "in_progress" ? "🔄" : todo.status === "blocked" ? "🚫" : "⬜";
-      const priorityIcon = todo.priority === "critical" ? "🔴" : todo.priority === "high" ? "🟠" : todo.priority === "medium" ? "🟡" : "🟢";
-      lines.push(`- ${statusIcon} ${priorityIcon} ${todo.text}${todo.branch ? ` (\`${todo.branch}\`)` : ""}`);
+      const statusMarker = todo.status === "in_progress" ? "[IN PROGRESS]" : todo.status === "blocked" ? "[BLOCKED]" : "[ ]";
+      const priorityMarker = `[${todo.priority}]`;
+      lines.push(`- ${statusMarker} ${priorityMarker} ${todo.text}${todo.branch ? ` (\`${todo.branch}\`)` : ""}`);
     }
     lines.push("");
   }
