@@ -1,0 +1,1 @@
+Initialize devctx for this project. Detect the project name from the directory, identify the current branch, and set up tracking. If I provide a description or focus after the command, use those. Call the devctx_init tool.

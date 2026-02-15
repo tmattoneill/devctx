@@ -1,0 +1,1 @@
+Show my current todos. Call devctx_todo_list for the current branch. If I mention adding, updating, or completing a todo after this command, handle that with the appropriate devctx_todo_add, devctx_todo_update, or devctx_todo_remove tool.

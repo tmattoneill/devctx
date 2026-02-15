@@ -1,0 +1,1 @@
+Show the full devctx status dashboard for this project. Call devctx_status and display the output exactly as returned — it's pre-formatted with box-drawing characters. Do not reformat or summarize it.

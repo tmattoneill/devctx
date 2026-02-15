@@ -1,0 +1,1 @@
+Update my current focus. Take whatever I type after this command as the focus description. Call devctx_update_focus with sync_claude_md enabled. If I don't provide any text, ask me what I'm working on.
