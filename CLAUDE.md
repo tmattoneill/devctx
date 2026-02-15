@@ -59,11 +59,21 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 - Scanner detects: JS/TS/Python/Rust/Go/Java/Kotlin/C++, 15+ frameworks, 10+ build tools, 6 CI/CD systems, 10+ infra platforms
 
 <!-- DEVCTX:START -->
-## 🔍 Project Context (auto-updated by devctx)
+## Project Context (auto-updated by devctx)
+
+> **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.
 
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
-**Branch:** `unknown`
-**Last Updated:** 15/02/2026, 12:23:22
+**Branch:** `main`
+**Last Updated:** 15/02/2026, 13:54:28
+
+### Active Todos
+- [ ] [high] Test the new source TODO scanning on different project types (Python, JavaScript, Go) to validate comment detection (`main`)
+- [ ] [high] Test the complete session workflow: init -> work -> goodbye to verify all features integrate smoothly (`main`)
+- [ ] [medium] Add unit tests for the TODO scanning functionality in scanner.ts (`main`)
+- [ ] [medium] Update the README with examples of the TODO scanning output format (`main`)
+- [ ] [medium] Document the slash commands installation process for new users (`main`)
+- [ ] [low] Consider adding configuration options for TODO comment patterns (custom keywords, file extensions) (`main`)
 
 <!-- DEVCTX:END -->
