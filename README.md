@@ -77,6 +77,53 @@ Or if you used `npm link`:
 }
 ```
 
+### Permissions
+
+devctx tools read/write to `.devctx/` (gitignored) and `CLAUDE.md` in your project. Since these are local file operations and the MCP server is trusted, you'll want to allow its tools so Claude Code doesn't prompt you on every call.
+
+**Recommended: allow all devctx tools at the system level** (since devctx is a global MCP server used across all projects):
+
+```bash
+# In Claude Code, run:
+/permissions
+
+# Then add:
+# Allow: mcp__devctx  (allows all devctx_* tools)
+```
+
+Or add to `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__devctx__devctx_init",
+      "mcp__devctx__devctx_start",
+      "mcp__devctx__devctx_stop",
+      "mcp__devctx__devctx_goodbye",
+      "mcp__devctx__devctx_status",
+      "mcp__devctx__devctx_summary",
+      "mcp__devctx__devctx_whereami",
+      "mcp__devctx__devctx_update_focus",
+      "mcp__devctx__devctx_log",
+      "mcp__devctx__devctx_activity",
+      "mcp__devctx__devctx_todo_add",
+      "mcp__devctx__devctx_todo_update",
+      "mcp__devctx__devctx_todo_list",
+      "mcp__devctx__devctx_todo_remove",
+      "mcp__devctx__devctx_branch_notes",
+      "mcp__devctx__devctx_branch_notes_save",
+      "mcp__devctx__devctx_git_summary",
+      "mcp__devctx__devctx_sync"
+    ]
+  }
+}
+```
+
+Alternatively, if you prefer per-project control, add the same permissions to your project's `.claude/settings.json` instead.
+
+> **Why system-level?** devctx only touches `.devctx/` (gitignored) and the `<!-- DEVCTX -->` markers in `CLAUDE.md`. It never modifies source code, runs shell commands, or accesses the network (except the optional AI narrative via `ANTHROPIC_API_KEY`). Allowing it globally avoids repetitive permission prompts across projects.
+
 ### Slash Commands (optional but recommended)
 
 Copy the included slash commands to your global Claude Code commands directory:
@@ -89,16 +136,16 @@ This gives you:
 
 | Command | What it does |
 |---------|-------------|
-| `/devctx-init` | Initialize devctx for the current project |
-| `/devctx-status` | Full dashboard with AI narrative |
-| `/devctx-summary` | Just the AI narrative summary |
-| `/devctx-whereami` | Full project context overview |
-| `/devctx-start` | Resume tracking + show where you left off |
-| `/devctx-stop` | Pause tracking |
-| `/devctx-goodbye` | Session wrap-up — save game and sign off |
-| `/devctx-focus` | Update what you're working on |
-| `/devctx-todos` | View/manage todos |
-| `/devctx-git` | Git summary |
+| `/devctx-init` | Initialize devctx for the current project — scans language/framework, creates `.devctx/`, installs git hooks, syncs CLAUDE.md |
+| `/devctx-status` | Full dashboard: branches, todos, vitals, working tree + AI narrative recap of your last session |
+| `/devctx-summary` | Standalone AI narrative — recaps last session, current state, prioritized next steps |
+| `/devctx-whereami` | Complete project context dump — branch, status, recent commits, todos, activity log, branch notes |
+| `/devctx-start` | Resume tracking after a pause — re-enables logging and shows where you left off |
+| `/devctx-stop` | Pause all write operations — reads still work, nothing is deleted |
+| `/devctx-goodbye` | End-of-session wrap-up — generates AI summary, saves session record, auto-adds suggested todos, pauses tracking |
+| `/devctx-focus` | Set your current working focus (e.g., "building payment integration") — updates CLAUDE.md |
+| `/devctx-todos` | View, add, update, or filter todos by branch/status/priority |
+| `/devctx-git` | Git-focused summary — recent commits across branches, push status, ahead/behind info |
 
 ## Getting Started
 
