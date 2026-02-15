@@ -62,21 +62,56 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
 // --- Auto-session-start ---
 
 let sessionStarted = false;
+let pendingGreeting: string | null = null;
 
 function autoSessionStart(repoRoot: string): void {
   if (sessionStarted || !isDevctxInitialized(repoRoot)) return;
 
+  const wasResumed = !isDevctxActive(repoRoot);
+
   // Auto-resume if paused — a new MCP process means a new Claude session
-  if (!isDevctxActive(repoRoot)) {
+  if (wasResumed) {
     setDevctxActive(repoRoot, true);
   }
 
+  const branch = getCurrentBranch(repoRoot);
   logActivity(repoRoot, {
     type: "session_start",
     message: "Session started",
-    branch: getCurrentBranch(repoRoot),
+    branch,
   });
   sessionStarted = true;
+
+  // Build greeting for the first tool response
+  const state = getProjectState(repoRoot);
+  const lines: string[] = [`👋 **devctx is tracking this project.**`];
+  if (state.currentFocus) lines.push(`🎯 Focus: ${state.currentFocus}`);
+  lines.push(`🌿 Branch: \`${branch}\``);
+  if (wasResumed) lines.push(`▶️ Tracking resumed from last session.`);
+
+  // Check for suggested todos from last goodbye
+  const todos = getTodos(repoRoot);
+  const suggested = todos.filter(t => t.source === "suggested" && t.status === "todo");
+  if (suggested.length > 0) {
+    lines.push(`📋 ${suggested.length} suggested todo(s) from last session — run \`devctx_todo_list\` to review.`);
+  }
+
+  lines.push(`💡 Use \`/devctx-goodbye\` when you're done to save session context.`);
+  pendingGreeting = lines.join("\n");
+}
+
+/** Prepend the one-time session greeting to a tool response */
+function withGreeting<T extends { content: Array<{ type: "text"; text: string }> }>(result: T): T {
+  if (!pendingGreeting) return result;
+  const greeting = pendingGreeting;
+  pendingGreeting = null;
+  return {
+    ...result,
+    content: [
+      { type: "text" as const, text: greeting + "\n\n---\n" },
+      ...result.content,
+    ],
+  };
 }
 
 // --- Server ---
@@ -116,13 +151,9 @@ server.registerTool(
     const branchNotes = getBranchNotes(repoRoot, status.branch);
     const lastPush = getLastPush(repoRoot);
 
-    let output = formatWhereAmI(repoRoot, status, state, commits, activeTodos, activity, branchNotes, lastPush);
+    const output = formatWhereAmI(repoRoot, status, state, commits, activeTodos, activity, branchNotes, lastPush);
 
-    if (!state.active) {
-      output = "⏸️ **devctx is paused** — read-only mode. Use `devctx_start` to resume tracking.\n\n" + output;
-    }
-
-    return { content: [{ type: "text", text: output }] };
+    return withGreeting({ content: [{ type: "text", text: output }] });
   }
 );
 
@@ -249,7 +280,7 @@ server.registerTool(
     autoSessionStart(repoRoot);
     const entries = getRecentActivity(repoRoot, count, type);
     const output = formatActivityLog(entries);
-    return { content: [{ type: "text", text: output }] };
+    return withGreeting({ content: [{ type: "text", text: output }] });
   }
 );
 
@@ -379,7 +410,7 @@ server.registerTool(
     autoSessionStart(repoRoot);
     const todos = getTodos(repoRoot, branch, status);
     const output = formatTodoList(todos, branch);
-    return { content: [{ type: "text", text: output }] };
+    return withGreeting({ content: [{ type: "text", text: output }] });
   }
 );
 
@@ -850,9 +881,9 @@ server.registerTool(
       narrative: narrativeText,
     });
 
-    return {
+    return withGreeting({
       content: [{ type: "text", text: dashboard }],
-    };
+    });
   }
 );
 
@@ -901,12 +932,12 @@ server.registerTool(
 
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
 
-    return {
+    return withGreeting({
       content: [{
         type: "text",
         text: `# 📋 Project Summary — ${state.projectName}\n${hasApiKey ? "" : "*(deterministic fallback — set ANTHROPIC_API_KEY for AI narrative)*\n"}\n${narrative}`,
       }],
-    };
+    });
   }
 );
 
@@ -965,7 +996,7 @@ server.registerTool(
       lines.push(`- \`${c.shortHash}\` ${c.subject} — *${c.author}* (${new Date(c.date).toLocaleDateString()})`);
     }
 
-    return { content: [{ type: "text", text: lines.join("\n") }] };
+    return withGreeting({ content: [{ type: "text", text: lines.join("\n") }] });
   }
 );
 
