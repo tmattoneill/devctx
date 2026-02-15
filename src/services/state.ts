@@ -31,11 +31,12 @@ export interface Todo {
   created: string;
   updated: string;
   tags?: string[];
+  source?: "manual" | "suggested";
 }
 
 export interface ActivityEntry {
   timestamp: string;
-  type: "commit" | "push" | "build" | "run" | "test" | "deploy" | "note" | "session_start" | "session_end" | "milestone" | "custom";
+  type: "commit" | "push" | "build" | "run" | "test" | "deploy" | "note" | "session_start" | "session_end" | "milestone" | "custom" | "branch_switch" | "merge";
   message: string;
   branch: string;
   metadata?: Record<string, string>;
@@ -169,7 +170,7 @@ export function getLastActivityByType(repoRoot: string): Record<string, Activity
   const dir = join(repoRoot, CLAUDETTE_DIR);
   const logFile = join(dir, ACTIVITY_LOG);
 
-  const types = ["commit", "push", "build", "run", "test", "deploy", "session_start", "session_end", "milestone", "note"];
+  const types = ["commit", "push", "build", "run", "test", "deploy", "session_start", "session_end", "milestone", "note", "branch_switch", "merge"];
   const result: Record<string, ActivityEntry | null> = {};
   for (const t of types) result[t] = null;
 
@@ -214,7 +215,7 @@ function saveTodos(repoRoot: string, todos: Todo[]): void {
   writeFileSync(join(dir, TODOS_FILE), JSON.stringify(todos, null, 2));
 }
 
-export function addTodo(repoRoot: string, text: string, priority: Todo["priority"] = "medium", branch?: string, tags?: string[]): Todo {
+export function addTodo(repoRoot: string, text: string, priority: Todo["priority"] = "medium", branch?: string, tags?: string[], source?: Todo["source"]): Todo {
   const todos = getTodos(repoRoot);
   const id = `todo_${Date.now().toString(36)}`;
   const now = new Date().toISOString();
@@ -228,6 +229,7 @@ export function addTodo(repoRoot: string, text: string, priority: Todo["priority
     created: now,
     updated: now,
     tags,
+    source: source || "manual",
   };
 
   todos.push(todo);

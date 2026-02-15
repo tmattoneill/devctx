@@ -15,8 +15,11 @@ import {
 } from "./services/state.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
-import { generateNarrative } from "./services/narrative.js";
+import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
 import { scanProject, formatScanReport, generateAutoDescription } from "./services/scanner.js";
+import { installHooks } from "./services/hooks.js";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
+import { join } from "path";
 
 // --- Resolve project root ---
 
@@ -56,6 +59,21 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
   return null;
 }
 
+// --- Auto-session-start ---
+
+let sessionStarted = false;
+
+function autoSessionStart(repoRoot: string): void {
+  if (!sessionStarted && isDevctxInitialized(repoRoot) && isDevctxActive(repoRoot)) {
+    logActivity(repoRoot, {
+      type: "session_start",
+      message: "Session started",
+      branch: getCurrentBranch(repoRoot),
+    });
+    sessionStarted = true;
+  }
+}
+
 // --- Server ---
 
 const server = new McpServer({
@@ -83,6 +101,7 @@ server.registerTool(
   },
   async ({ include_done_todos }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const status = getGitStatus(repoRoot);
     const state = getProjectState(repoRoot);
     const commits = getRecentCommits(repoRoot, 5);
@@ -124,6 +143,7 @@ server.registerTool(
   },
   async ({ focus, description, sync_claude_md }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
     const notInit = guardInitialized(repoRoot);
@@ -168,7 +188,7 @@ server.registerTool(
 
 Always log immediately after the action completes. This data powers the VITALS dashboard.`,
     inputSchema: {
-      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom"]).describe("Type of activity — use build/run/test for dev commands, commit/push/deploy for git operations"),
+      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge"]).describe("Type of activity — use build/run/test for dev commands, commit/push/deploy for git operations"),
       message: z.string().min(1).max(1000).describe("Description of the activity"),
       metadata: z.record(z.string()).optional().describe("Optional key-value metadata"),
     },
@@ -181,6 +201,7 @@ Always log immediately after the action completes. This data powers the VITALS d
   },
   async ({ type, message, metadata }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -191,6 +212,7 @@ Always log immediately after the action completes. This data powers the VITALS d
     const typeIcon: Record<string, string> = {
       commit: "💾", push: "🚀", build: "🔨", run: "▶️", test: "🧪",
       deploy: "🌐", milestone: "🏆", note: "📝", custom: "📌",
+      branch_switch: "🔀", merge: "🔗",
     };
     return {
       content: [{ type: "text", text: `${typeIcon[type] || "📝"} Logged: **${type}** on \`${branch}\`\n${message}` }],
@@ -208,7 +230,7 @@ server.registerTool(
     description: `View the activity log. Shows timestamped entries of commits, pushes, builds, deploys, notes, and milestones. Optionally filter by activity type.`,
     inputSchema: {
       count: z.number().int().min(1).max(100).default(20).describe("Number of entries to show"),
-      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom"]).optional().describe("Filter by activity type"),
+      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge"]).optional().describe("Filter by activity type"),
     },
     annotations: {
       readOnlyHint: true,
@@ -219,6 +241,7 @@ server.registerTool(
   },
   async ({ count, type }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const entries = getRecentActivity(repoRoot, count, type);
     const output = formatActivityLog(entries);
     return { content: [{ type: "text", text: output }] };
@@ -249,6 +272,7 @@ server.registerTool(
   },
   async ({ text, priority, branch, tags, sync_claude_md }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -298,6 +322,7 @@ server.registerTool(
   },
   async ({ id, status, text, priority, tags, sync_claude_md }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -346,6 +371,7 @@ server.registerTool(
   },
   async ({ branch, status }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const todos = getTodos(repoRoot, branch, status);
     const output = formatTodoList(todos, branch);
     return { content: [{ type: "text", text: output }] };
@@ -372,6 +398,7 @@ server.registerTool(
   },
   async ({ id }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -403,6 +430,7 @@ server.registerTool(
   },
   async ({ branch }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const b = branch || getCurrentBranch(repoRoot);
     const notes = getBranchNotes(repoRoot, b);
 
@@ -434,6 +462,7 @@ server.registerTool(
   },
   async ({ branch, content }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -468,6 +497,7 @@ server.registerTool(
   },
   async () => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
     if (paused) return paused;
 
@@ -613,12 +643,14 @@ Safe to run multiple times — won't overwrite existing data without force flag.
       },
     });
 
-    // Log session start so VITALS shows it immediately
-    logActivity(repoRoot, {
-      type: "session_start",
-      message: "Session started (init)",
-      branch,
-    });
+    // ── Step 6b: Install git hooks ──
+    const hookResult = installHooks(repoRoot);
+    if (hookResult.installed.length > 0) {
+      output.push(`  ✅ Git hooks installed: ${hookResult.installed.join(", ")}`);
+    }
+    if (hookResult.skipped.length > 0) {
+      output.push(`  ⚠️ Hooks skipped: ${hookResult.skipped.join(", ")}`);
+    }
 
     // ── Step 8: Sync to CLAUDE.md (skip for truly empty projects) ──
     if (scan.environment !== "empty" || focus) {
@@ -696,6 +728,7 @@ server.registerTool(
   },
   async () => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const notInit = guardInitialized(repoRoot);
     if (notInit) return notInit;
 
@@ -725,6 +758,7 @@ server.registerTool(
   },
   async () => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const notInit = guardInitialized(repoRoot);
     if (notInit) return notInit;
 
@@ -762,6 +796,7 @@ server.registerTool(
   },
   async ({ narrative: includeNarrative }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
 
     if (!isDevctxInitialized(repoRoot)) {
       return {
@@ -793,6 +828,7 @@ server.registerTool(
         todos,
         branchNotes,
         lastPush,
+        repoRoot,
       });
     }
 
@@ -833,6 +869,7 @@ server.registerTool(
   },
   async () => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const notInit = guardInitialized(repoRoot);
     if (notInit) return notInit;
 
@@ -854,6 +891,7 @@ server.registerTool(
       todos,
       branchNotes,
       lastPush,
+      repoRoot,
     });
 
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
@@ -888,6 +926,7 @@ server.registerTool(
   },
   async ({ commit_count, branch }) => {
     const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
     const status = getGitStatus(repoRoot);
     const commits = getRecentCommits(repoRoot, commit_count, branch);
     const branches = getBranches(repoRoot);
@@ -922,6 +961,155 @@ server.registerTool(
     }
 
     return { content: [{ type: "text", text: lines.join("\n") }] };
+  }
+);
+
+// ============================================================
+// TOOL: devctx_goodbye
+// ============================================================
+server.registerTool(
+  "devctx_goodbye",
+  {
+    title: "Session Wrap-Up (Goodbye)",
+    description: `Save a comprehensive session summary and wrap up for the day. This is the "save game" button — generates an AI-written session record with what happened, unfinished work, and suggested next steps. Auto-adds smart todos and pauses tracking. Run this when you're done working.`,
+    inputSchema: {
+      message: z.string().max(1000).optional().describe("Optional parting note (e.g., 'picking this up Thursday', 'blocked on API key from Dave')"),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async ({ message: userMessage }) => {
+    const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
+    const paused = guardActive(repoRoot);
+    if (paused) return paused;
+    const notInit = guardInitialized(repoRoot);
+    if (notInit) return notInit;
+
+    const state = getProjectState(repoRoot);
+    const status = getGitStatus(repoRoot);
+    const branches = getAllBranches(repoRoot);
+    const recentCommits = getRecentCommits(repoRoot, 15);
+    const recentActivity = getRecentActivity(repoRoot, 30);
+    const todos = getTodos(repoRoot);
+    const branchNotes = getBranchNotes(repoRoot, status.branch);
+    const lastPush = getLastPush(repoRoot);
+
+    // Read CLAUDE.md
+    let claudeMdContent = "";
+    const claudeMdPath = join(repoRoot, "CLAUDE.md");
+    if (existsSync(claudeMdPath)) {
+      try { claudeMdContent = readFileSync(claudeMdPath, "utf-8"); } catch { /* skip */ }
+    }
+
+    // Calculate session duration
+    const sessionStarts = recentActivity.filter(a => a.type === "session_start");
+    let sessionDuration: string | undefined;
+    if (sessionStarts.length > 0) {
+      const startTime = new Date(sessionStarts[0].timestamp).getTime();
+      const now = Date.now();
+      const diffMs = now - startTime;
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 60) sessionDuration = `${mins} minutes`;
+      else {
+        const hrs = Math.floor(mins / 60);
+        const remainMins = mins % 60;
+        sessionDuration = `${hrs}h ${remainMins}m`;
+      }
+    }
+
+    // Count commits this session
+    const commitCount = recentCommits.length;
+
+    // Generate goodbye summary
+    const { narrative, todos: suggestedTodos } = await generateGoodbyeSummary({
+      state,
+      status,
+      branches,
+      recentCommits,
+      recentActivity,
+      todos,
+      branchNotes,
+      lastPush,
+      repoRoot,
+      claudeMdContent,
+      userMessage,
+      sessionDuration,
+      commitCount,
+    });
+
+    // Save session record
+    const sessionsDir = join(repoRoot, ".devctx", "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+
+    const now = new Date();
+    const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
+    const sessionFile = join(sessionsDir, `${dateStr}.md`);
+
+    const sessionRecord = [
+      `# Session: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
+      `**Branch:** ${status.branch}`,
+      ...(sessionDuration ? [`**Duration:** ${sessionDuration}`] : []),
+      `**Commits:** ${commitCount}`,
+      ...(userMessage ? [`\n> ${userMessage}`] : []),
+      "",
+      "---",
+      "",
+      narrative,
+      "",
+      "---",
+      "",
+      "## Auto-generated todos",
+      ...(suggestedTodos.length > 0
+        ? suggestedTodos.map(t => `- [${t.priority}] ${t.text}`)
+        : ["(none)"]),
+      "",
+    ].join("\n");
+
+    writeFileSync(sessionFile, sessionRecord);
+
+    // Add suggested todos
+    const branch = getCurrentBranch(repoRoot);
+    for (const t of suggestedTodos) {
+      addTodo(repoRoot, t.text, t.priority as "low" | "medium" | "high" | "critical", branch, undefined, "suggested");
+    }
+
+    // Log session end
+    logActivity(repoRoot, {
+      type: "session_end",
+      message: "Session ended — goodbye summary saved",
+      branch,
+    });
+
+    // Pause tracking
+    setDevctxActive(repoRoot, false);
+
+    // Sync CLAUDE.md
+    const updatedState = getProjectState(repoRoot);
+    const updatedTodos = getTodos(repoRoot);
+    updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
+
+    // Count branches worked on
+    const branchSet = new Set(recentActivity.map(a => a.branch));
+
+    return {
+      content: [{
+        type: "text",
+        text: [
+          `👋 **Session saved.**`,
+          `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
+          ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
+          "",
+          `Session record: \`.devctx/sessions/${dateStr}.md\``,
+          "",
+          "Tracking paused. See you next time!",
+        ].join("\n"),
+      }],
+    };
   }
 );
 

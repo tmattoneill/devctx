@@ -200,8 +200,9 @@ export function buildDashboard(data: DashboardData): string {
     for (const todo of sorted.slice(0, 8)) {
       const icon = priorityIcon[todo.priority] || "⬜";
       const st = statusLabel[todo.status] || todo.status;
-      const text = truncate(todo.text, 48);
-      lines.push(`  ${icon} ${padRight(text, 48)} ${padLeft(st, 4)}`);
+      const suggestedTag = todo.source === "suggested" ? " [suggested]" : "";
+      const text = truncate(todo.text, suggestedTag ? 36 : 48);
+      lines.push(`  ${icon} ${padRight(text + suggestedTag, 48)} ${padLeft(st, 4)}`);
     }
     if (branchTodos.length > 8) {
       lines.push(`  … +${branchTodos.length - 8} more`);

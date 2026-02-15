@@ -116,7 +116,8 @@ export function formatTodoList(todos: Todo[], branch?: string): string {
       for (const t of items) {
         const priorityIcon = t.priority === "critical" ? "🔴" : t.priority === "high" ? "🟠" : t.priority === "medium" ? "🟡" : "🟢";
         const tags = t.tags?.length ? ` [${t.tags.join(", ")}]` : "";
-        lines.push(`- ${priorityIcon} **${t.text}**${tags} — \`${t.id}\``);
+        const suggestedTag = t.source === "suggested" ? " [suggested]" : "";
+        lines.push(`- ${priorityIcon} **${t.text}**${suggestedTag}${tags} — \`${t.id}\``);
       }
       lines.push("");
     }
