@@ -990,132 +990,154 @@ server.registerTool(
     const notInit = guardInitialized(repoRoot);
     if (notInit) return notInit;
 
-    const state = getProjectState(repoRoot);
-    const status = getGitStatus(repoRoot);
-    const branches = getAllBranches(repoRoot);
-    const recentCommits = getRecentCommits(repoRoot, 15);
-    const recentActivity = getRecentActivity(repoRoot, 30);
-    const todos = getTodos(repoRoot);
-    const branchNotes = getBranchNotes(repoRoot, status.branch);
-    const lastPush = getLastPush(repoRoot);
+    try {
+      const state = getProjectState(repoRoot);
+      const status = getGitStatus(repoRoot);
+      const branches = getAllBranches(repoRoot);
+      const recentCommits = getRecentCommits(repoRoot, 15);
+      const recentActivity = getRecentActivity(repoRoot, 30);
+      const todos = getTodos(repoRoot);
+      const branchNotes = getBranchNotes(repoRoot, status.branch);
+      const lastPush = getLastPush(repoRoot);
 
-    // Read CLAUDE.md
-    let claudeMdContent = "";
-    const claudeMdPath = join(repoRoot, "CLAUDE.md");
-    if (existsSync(claudeMdPath)) {
-      try { claudeMdContent = readFileSync(claudeMdPath, "utf-8"); } catch { /* skip */ }
-    }
-
-    // Calculate session duration
-    const sessionStarts = recentActivity.filter(a => a.type === "session_start");
-    let sessionDuration: string | undefined;
-    if (sessionStarts.length > 0) {
-      const startTime = new Date(sessionStarts[0].timestamp).getTime();
-      const now = Date.now();
-      const diffMs = now - startTime;
-      const mins = Math.floor(diffMs / 60000);
-      if (mins < 60) sessionDuration = `${mins} minutes`;
-      else {
-        const hrs = Math.floor(mins / 60);
-        const remainMins = mins % 60;
-        sessionDuration = `${hrs}h ${remainMins}m`;
+      // Read CLAUDE.md
+      let claudeMdContent = "";
+      const claudeMdPath = join(repoRoot, "CLAUDE.md");
+      if (existsSync(claudeMdPath)) {
+        try { claudeMdContent = readFileSync(claudeMdPath, "utf-8"); } catch { /* skip */ }
       }
+
+      // Calculate session duration
+      const sessionStarts = recentActivity.filter(a => a.type === "session_start");
+      let sessionDuration: string | undefined;
+      if (sessionStarts.length > 0) {
+        const startTime = new Date(sessionStarts[0].timestamp).getTime();
+        const now = Date.now();
+        const diffMs = now - startTime;
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 60) sessionDuration = `${mins} minutes`;
+        else {
+          const hrs = Math.floor(mins / 60);
+          const remainMins = mins % 60;
+          sessionDuration = `${hrs}h ${remainMins}m`;
+        }
+      }
+
+      // Count commits this session
+      const commitCount = recentCommits.length;
+
+      // Generate goodbye summary
+      const { narrative, todos: suggestedTodos } = await generateGoodbyeSummary({
+        state,
+        status,
+        branches,
+        recentCommits,
+        recentActivity,
+        todos,
+        branchNotes,
+        lastPush,
+        repoRoot,
+        claudeMdContent,
+        userMessage,
+        sessionDuration,
+        commitCount,
+      });
+
+      // Save session record
+      const sessionsDir = join(repoRoot, ".devctx", "sessions");
+      mkdirSync(sessionsDir, { recursive: true });
+
+      const now = new Date();
+      const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
+      const sessionFile = join(sessionsDir, `${dateStr}.md`);
+
+      const sessionRecord = [
+        `# Session: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
+        `**Branch:** ${status.branch}`,
+        ...(sessionDuration ? [`**Duration:** ${sessionDuration}`] : []),
+        `**Commits:** ${commitCount}`,
+        ...(userMessage ? [`\n> ${userMessage}`] : []),
+        "",
+        "---",
+        "",
+        narrative,
+        "",
+        "---",
+        "",
+        "## Auto-generated todos",
+        ...(suggestedTodos.length > 0
+          ? suggestedTodos.map(t => `- [${t.priority}] ${t.text}`)
+          : ["(none)"]),
+        "",
+      ].join("\n");
+
+      writeFileSync(sessionFile, sessionRecord);
+
+      // Add suggested todos
+      const branch = getCurrentBranch(repoRoot);
+      for (const t of suggestedTodos) {
+        addTodo(repoRoot, t.text, t.priority as "low" | "medium" | "high" | "critical", branch, undefined, "suggested");
+      }
+
+      // Log session end
+      logActivity(repoRoot, {
+        type: "session_end",
+        message: "Session ended — goodbye summary saved",
+        branch,
+      });
+
+      // Pause tracking
+      setDevctxActive(repoRoot, false);
+
+      // Sync CLAUDE.md
+      const updatedState = getProjectState(repoRoot);
+      const updatedTodos = getTodos(repoRoot);
+      updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
+
+      // Count branches worked on
+      const branchSet = new Set(recentActivity.map(a => a.branch));
+
+      return {
+        content: [{
+          type: "text",
+          text: [
+            `👋 **Session saved.**`,
+            `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
+            ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
+            "",
+            `Session record: \`.devctx/sessions/${dateStr}.md\``,
+            "",
+            "Tracking paused. See you next time!",
+          ].join("\n"),
+        }],
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`devctx_goodbye error: ${errMsg}`);
+      // Still try to log and pause even on error
+      try {
+        const branch = getCurrentBranch(repoRoot);
+        logActivity(repoRoot, { type: "session_end", message: `Session ended (with errors: ${errMsg})`, branch });
+        setDevctxActive(repoRoot, false);
+      } catch { /* best effort */ }
+      return {
+        content: [{
+          type: "text",
+          text: `⚠️ Goodbye completed with errors: ${errMsg}\n\nTracking has been paused. Session record may be incomplete.`,
+        }],
+      };
     }
-
-    // Count commits this session
-    const commitCount = recentCommits.length;
-
-    // Generate goodbye summary
-    const { narrative, todos: suggestedTodos } = await generateGoodbyeSummary({
-      state,
-      status,
-      branches,
-      recentCommits,
-      recentActivity,
-      todos,
-      branchNotes,
-      lastPush,
-      repoRoot,
-      claudeMdContent,
-      userMessage,
-      sessionDuration,
-      commitCount,
-    });
-
-    // Save session record
-    const sessionsDir = join(repoRoot, ".devctx", "sessions");
-    mkdirSync(sessionsDir, { recursive: true });
-
-    const now = new Date();
-    const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
-    const sessionFile = join(sessionsDir, `${dateStr}.md`);
-
-    const sessionRecord = [
-      `# Session: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
-      `**Branch:** ${status.branch}`,
-      ...(sessionDuration ? [`**Duration:** ${sessionDuration}`] : []),
-      `**Commits:** ${commitCount}`,
-      ...(userMessage ? [`\n> ${userMessage}`] : []),
-      "",
-      "---",
-      "",
-      narrative,
-      "",
-      "---",
-      "",
-      "## Auto-generated todos",
-      ...(suggestedTodos.length > 0
-        ? suggestedTodos.map(t => `- [${t.priority}] ${t.text}`)
-        : ["(none)"]),
-      "",
-    ].join("\n");
-
-    writeFileSync(sessionFile, sessionRecord);
-
-    // Add suggested todos
-    const branch = getCurrentBranch(repoRoot);
-    for (const t of suggestedTodos) {
-      addTodo(repoRoot, t.text, t.priority as "low" | "medium" | "high" | "critical", branch, undefined, "suggested");
-    }
-
-    // Log session end
-    logActivity(repoRoot, {
-      type: "session_end",
-      message: "Session ended — goodbye summary saved",
-      branch,
-    });
-
-    // Pause tracking
-    setDevctxActive(repoRoot, false);
-
-    // Sync CLAUDE.md
-    const updatedState = getProjectState(repoRoot);
-    const updatedTodos = getTodos(repoRoot);
-    updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
-
-    // Count branches worked on
-    const branchSet = new Set(recentActivity.map(a => a.branch));
-
-    return {
-      content: [{
-        type: "text",
-        text: [
-          `👋 **Session saved.**`,
-          `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
-          ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
-          "",
-          `Session record: \`.devctx/sessions/${dateStr}.md\``,
-          "",
-          "Tracking paused. See you next time!",
-        ].join("\n"),
-      }],
-    };
   }
 );
 
 // ============================================================
 // Start server
 // ============================================================
+
+// Prevent unhandled rejections from crashing the server process
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection in devctx MCP server:", reason);
+});
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
