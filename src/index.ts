@@ -64,14 +64,19 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
 let sessionStarted = false;
 
 function autoSessionStart(repoRoot: string): void {
-  if (!sessionStarted && isDevctxInitialized(repoRoot) && isDevctxActive(repoRoot)) {
-    logActivity(repoRoot, {
-      type: "session_start",
-      message: "Session started",
-      branch: getCurrentBranch(repoRoot),
-    });
-    sessionStarted = true;
+  if (sessionStarted || !isDevctxInitialized(repoRoot)) return;
+
+  // Auto-resume if paused — a new MCP process means a new Claude session
+  if (!isDevctxActive(repoRoot)) {
+    setDevctxActive(repoRoot, true);
   }
+
+  logActivity(repoRoot, {
+    type: "session_start",
+    message: "Session started",
+    branch: getCurrentBranch(repoRoot),
+  });
+  sessionStarted = true;
 }
 
 // --- Server ---
