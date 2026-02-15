@@ -313,6 +313,115 @@ export function scanProject(rootDir: string): ProjectScan {
   return scan;
 }
 
+// ── Source TODO scanner ─────────────────────────────────────
+
+export interface SourceTodo {
+  file: string;   // relative path from repo root
+  line: number;
+  tag: string;    // "TODO" | "FIXME" | "HACK" | "XXX"
+  text: string;   // the comment text after the tag
+}
+
+const SOURCE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".kt",
+  ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".sh",
+  ".yaml", ".yml", ".toml", ".md", ".html", ".css", ".scss",
+  ".svelte", ".vue", ".swift", ".zig",
+]);
+
+const SKIP_DIRS = new Set([
+  "node_modules", "__pycache__", "dist", "build", "target", ".devctx",
+  ".git", "vendor", ".next", ".nuxt", "coverage", ".turbo",
+]);
+
+const TODO_PATTERN = /(?:\/\/|#|\*|--|\/\*|<!--)\s*(TODO|FIXME|HACK|XXX)\b[:\s]*(.*)/i;
+
+const MAX_DEPTH = 5;
+const MAX_FILES = 500;
+const MAX_LINES_PER_FILE = 10000;
+
+function collectFiles(dir: string, rootDir: string, depth: number, files: string[]): void {
+  if (depth > MAX_DEPTH || files.length >= MAX_FILES) return;
+  try {
+    const entries = readdirSync(dir);
+    for (const entry of entries) {
+      if (files.length >= MAX_FILES) return;
+      if (entry.startsWith(".") || SKIP_DIRS.has(entry)) continue;
+      const fullPath = join(dir, entry);
+      try {
+        const stat = statSync(fullPath);
+        if (stat.isFile()) {
+          const ext = entry.substring(entry.lastIndexOf("."));
+          if (SOURCE_EXTENSIONS.has(ext)) {
+            files.push(fullPath);
+          }
+        } else if (stat.isDirectory()) {
+          collectFiles(fullPath, rootDir, depth + 1, files);
+        }
+      } catch { /* permission errors */ }
+    }
+  } catch { /* empty dir */ }
+}
+
+export function scanSourceTodos(rootDir: string): SourceTodo[] {
+  const files: string[] = [];
+  collectFiles(rootDir, rootDir, 0, files);
+
+  const todos: SourceTodo[] = [];
+
+  for (const filePath of files) {
+    try {
+      const content = readFileSync(filePath, "utf-8");
+      const lines = content.split("\n");
+      const lineCount = Math.min(lines.length, MAX_LINES_PER_FILE);
+
+      for (let i = 0; i < lineCount; i++) {
+        const match = lines[i].match(TODO_PATTERN);
+        if (match) {
+          const relativePath = filePath.substring(rootDir.length + 1);
+          todos.push({
+            file: relativePath,
+            line: i + 1,
+            tag: match[1].toUpperCase(),
+            text: match[2].trim(),
+          });
+        }
+      }
+    } catch { /* skip unreadable files */ }
+  }
+
+  return todos;
+}
+
+export function formatSourceTodos(todos: SourceTodo[]): string {
+  if (todos.length === 0) return "No code TODOs found.";
+
+  const tagCounts: Record<string, number> = {};
+  for (const t of todos) {
+    tagCounts[t.tag] = (tagCounts[t.tag] || 0) + 1;
+  }
+
+  const countParts = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => `${count} ${tag}`);
+
+  const lines: string[] = [
+    `**Code TODOs found:** ${todos.length} (${countParts.join(", ")})`,
+    "",
+  ];
+
+  const display = todos.slice(0, 20);
+  for (const t of display) {
+    lines.push(`- **${t.tag}** \`${t.file}:${t.line}\` ${t.text}`);
+  }
+
+  if (todos.length > 20) {
+    lines.push(`\n... and ${todos.length - 20} more`);
+  }
+
+  return lines.join("\n");
+}
+
 // ── Format scan for display ─────────────────────────────────
 
 export function formatScanReport(scan: ProjectScan): string {

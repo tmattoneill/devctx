@@ -12,11 +12,12 @@ import {
   getBranchNotes, saveBranchNotes, listBranchNotes,
   updateClaudeMd,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
+  saveSourceTodos, getSourceTodos,
 } from "./services/state.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
 import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
-import { scanProject, formatScanReport, generateAutoDescription } from "./services/scanner.js";
+import { scanProject, formatScanReport, generateAutoDescription, scanSourceTodos, formatSourceTodos } from "./services/scanner.js";
 import { installHooks } from "./services/hooks.js";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
@@ -721,6 +722,17 @@ Safe to run multiple times — won't overwrite existing data without force flag.
       ...output,
     ];
 
+    // ── Step 9b: Scan source TODOs ──
+    const sourceTodos = scanSourceTodos(repoRoot);
+    if (sourceTodos.length > 0) {
+      saveSourceTodos(repoRoot, sourceTodos);
+      report.push("---");
+      report.push("");
+      report.push("**📝 Source Code TODOs:**");
+      report.push(formatSourceTodos(sourceTodos));
+      report.push("");
+    }
+
     // Git state section
     if (commits.length > 0 || branches.length > 0) {
       report.push("");
@@ -1062,6 +1074,19 @@ server.registerTool(
       // Count commits this session
       const commitCount = recentCommits.length;
 
+      // Scan source TODOs and diff against last scan
+      const currentSourceTodos = scanSourceTodos(repoRoot);
+      const previousSourceTodos = getSourceTodos(repoRoot);
+
+      // Diff: find added and resolved TODOs
+      const prevKeys = new Set(previousSourceTodos.map(t => `${t.file}:${t.line}:${t.tag}`));
+      const currKeys = new Set(currentSourceTodos.map(t => `${t.file}:${t.line}:${t.tag}`));
+      const addedSourceTodos = currentSourceTodos.filter(t => !prevKeys.has(`${t.file}:${t.line}:${t.tag}`));
+      const resolvedSourceTodos = previousSourceTodos.filter(t => !currKeys.has(`${t.file}:${t.line}:${t.tag}`));
+
+      // Save current scan for next diff
+      saveSourceTodos(repoRoot, currentSourceTodos);
+
       // Generate goodbye summary
       const { narrative, todos: suggestedTodos } = await generateGoodbyeSummary({
         state,
@@ -1077,6 +1102,8 @@ server.registerTool(
         userMessage,
         sessionDuration,
         commitCount,
+        sourceTodos: currentSourceTodos,
+        sourceTodoDiff: { added: addedSourceTodos, resolved: resolvedSourceTodos },
       });
 
       // Save session record
@@ -1133,6 +1160,15 @@ server.registerTool(
       // Count branches worked on
       const branchSet = new Set(recentActivity.map(a => a.branch));
 
+      // Build source TODO diff summary
+      const todoDiffLines: string[] = [];
+      if (addedSourceTodos.length > 0 || resolvedSourceTodos.length > 0) {
+        todoDiffLines.push("");
+        todoDiffLines.push(`**Code TODOs:** ${currentSourceTodos.length} total`);
+        if (addedSourceTodos.length > 0) todoDiffLines.push(`  + ${addedSourceTodos.length} new`);
+        if (resolvedSourceTodos.length > 0) todoDiffLines.push(`  - ${resolvedSourceTodos.length} resolved`);
+      }
+
       return {
         content: [{
           type: "text",
@@ -1140,6 +1176,7 @@ server.registerTool(
             `👋 **Session saved.**`,
             `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
             ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
+            ...todoDiffLines,
             "",
             `Session record: \`.devctx/sessions/${dateStr}.md\``,
             "",

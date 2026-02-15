@@ -3,6 +3,7 @@ import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type { GitCommit, GitStatus, BranchInfo } from "./git.js";
 import type { ProjectState, Todo, ActivityEntry } from "./state.js";
+import type { SourceTodo } from "./scanner.js";
 
 const MODEL = "claude-sonnet-4-20250514";
 const MAX_TOKENS = 600;
@@ -253,6 +254,8 @@ export interface GoodbyeContext extends NarrativeContext {
   userMessage?: string;
   sessionDuration?: string;
   commitCount: number;
+  sourceTodos?: SourceTodo[];
+  sourceTodoDiff?: { added: SourceTodo[]; resolved: SourceTodo[] };
 }
 
 const GOODBYE_SYSTEM_PROMPT = `You are a development assistant writing a comprehensive session wrap-up. This is a "save game" document — the developer is ending their session and needs a detailed record of what happened so they (or another developer) can pick up exactly where they left off.
@@ -351,6 +354,35 @@ function buildGoodbyePrompt(ctx: GoodbyeContext): string {
     parts.push("Branch notes:");
     parts.push(ctx.branchNotes);
     parts.push("");
+  }
+
+  // Source TODOs
+  if (ctx.sourceTodos && ctx.sourceTodos.length > 0) {
+    parts.push(`Code TODOs in source (${ctx.sourceTodos.length} total):`);
+    for (const t of ctx.sourceTodos.slice(0, 15)) {
+      parts.push(`  [${t.tag}] ${t.file}:${t.line} — ${t.text}`);
+    }
+    if (ctx.sourceTodos.length > 15) {
+      parts.push(`  ... and ${ctx.sourceTodos.length - 15} more`);
+    }
+    parts.push("");
+  }
+
+  if (ctx.sourceTodoDiff) {
+    if (ctx.sourceTodoDiff.added.length > 0) {
+      parts.push(`New code TODOs added this session (${ctx.sourceTodoDiff.added.length}):`);
+      for (const t of ctx.sourceTodoDiff.added.slice(0, 10)) {
+        parts.push(`  + [${t.tag}] ${t.file}:${t.line} — ${t.text}`);
+      }
+      parts.push("");
+    }
+    if (ctx.sourceTodoDiff.resolved.length > 0) {
+      parts.push(`Code TODOs resolved this session (${ctx.sourceTodoDiff.resolved.length}):`);
+      for (const t of ctx.sourceTodoDiff.resolved.slice(0, 10)) {
+        parts.push(`  - [${t.tag}] ${t.file}:${t.line} — ${t.text}`);
+      }
+      parts.push("");
+    }
   }
 
   // CLAUDE.md excerpt

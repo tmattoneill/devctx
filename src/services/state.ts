@@ -255,6 +255,28 @@ export function removeTodo(repoRoot: string, id: string): boolean {
   return true;
 }
 
+// --- Source TODOs ---
+
+import type { SourceTodo } from "./scanner.js";
+
+const SOURCE_TODOS_FILE = "source-todos.json";
+
+export function saveSourceTodos(repoRoot: string, todos: SourceTodo[]): void {
+  const dir = ensuredevctxDir(repoRoot);
+  writeFileSync(join(dir, SOURCE_TODOS_FILE), JSON.stringify(todos, null, 2));
+}
+
+export function getSourceTodos(repoRoot: string): SourceTodo[] {
+  const dir = join(repoRoot, CLAUDETTE_DIR);
+  const file = join(dir, SOURCE_TODOS_FILE);
+  if (!existsSync(file)) return [];
+  try {
+    return JSON.parse(readFileSync(file, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
 // --- Branch notes ---
 
 export function getBranchNotes(repoRoot: string, branch: string): string {
