@@ -63,10 +63,12 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 
 > **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.
 
+**Current Focus:** Making small improvements: goodbye behavior and adding devctx to .gitignore
+
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 15/02/2026, 14:20:43
+**Last Updated:** 15/02/2026, 18:55:49
 
 ### Active Todos
 - [ ] [high] Test the new source TODO scanning on different project types (Python, JavaScript, Go) to validate comment detection (`main`)

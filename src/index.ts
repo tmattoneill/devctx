@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit } from "./services/git.js";
+import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit, commitFiles } from "./services/git.js";
 import {
   getProjectState, saveProjectState, updateProjectFocus,
   logActivity, getRecentActivity, getLastActivityByType,
@@ -1152,10 +1152,11 @@ server.registerTool(
       // Pause tracking
       setDevctxActive(repoRoot, false);
 
-      // Sync CLAUDE.md
+      // Sync CLAUDE.md and auto-commit it
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
       updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
+      commitFiles(repoRoot, ["CLAUDE.md"], "devctx: session goodbye");
 
       // Count branches worked on
       const branchSet = new Set(recentActivity.map(a => a.branch));

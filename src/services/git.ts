@@ -66,6 +66,32 @@ export function createInitialCommit(cwd: string, message: string = "Initial comm
   }
 }
 
+export function commitFiles(cwd: string, files: string[], message: string): boolean {
+  try {
+    for (const file of files) {
+      exec(`git add -- "${file}"`, cwd);
+    }
+    const status = exec("git status --porcelain", cwd);
+    if (!status) return false; // nothing to commit
+    execSync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd, encoding: "utf-8", timeout: 10000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getDiff(cwd: string): string {
+  // Staged + unstaged changes
+  const staged = exec("git diff --cached --stat", cwd);
+  const unstaged = exec("git diff --stat", cwd);
+  const untracked = exec("git ls-files --others --exclude-standard", cwd);
+  const parts: string[] = [];
+  if (staged) parts.push("Staged:\n" + staged);
+  if (unstaged) parts.push("Unstaged:\n" + unstaged);
+  if (untracked) parts.push("Untracked:\n" + untracked);
+  return parts.join("\n\n") || "No changes";
+}
+
 export function getRepoRoot(cwd: string): string | null {
   const root = exec("git rev-parse --show-toplevel", cwd);
   return root || null;
