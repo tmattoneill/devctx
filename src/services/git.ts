@@ -121,7 +121,12 @@ export function getRecentCommits(cwd: string, count: number = 10, branch?: strin
 
 export function getGitStatus(cwd: string): GitStatus {
   const branch = getCurrentBranch(cwd);
-  const statusRaw = exec("git status --porcelain", cwd);
+  // Use trimEnd() instead of trim() to preserve leading spaces in porcelain format.
+  // Porcelain format is "XY filename" where X (index) can be a space — trim() would strip it.
+  let statusRaw = "";
+  try {
+    statusRaw = execSync("git status --porcelain", { cwd, encoding: "utf-8", timeout: 10000 }).trimEnd();
+  } catch { /* empty */ }
   const lines = statusRaw.split("\n").filter(Boolean);
 
   const staged: string[] = [];
