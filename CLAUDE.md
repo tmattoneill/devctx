@@ -63,18 +63,18 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 
 > **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.
 
-**Current Focus:** Testing TODO scanning on different project types
+**Current Focus:** Fixing duplicate todo ID bug — todos from goodbye all share the same ID
 
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 16/02/2026, 12:10:38
+**Last Updated:** 16/02/2026, 12:21:55
 
 ### Active Todos
-- [ ] [high] Implement Source Tagging functionality referenced in README.md line 291 (`main`)
-- [ ] [medium] Complete the manual/suggested items feature mentioned in README.md line 391 (`main`)
-- [ ] [medium] Document the TODO scanner improvements in the project documentation (`main`)
-- [ ] [low] Test TODO scanner on additional file types like Rust, C++, or Ruby to ensure broad coverage (`main`)
-- [ ] [low] Consider adding configuration options for custom TODO keywords beyond TODO/FIXME/HACK/XXX (`main`)
+- [ ] [high] Check if staged 'LAUDE.md' should be 'CLAUDE.md' and commit the staged changes (`main`)
+- [ ] [medium] Validate the MD5 hash todo ID fix by running a full goodbye process and checking for unique IDs (`main`)
+- [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
+- [ ] [low] Clean up the test todos (alpha, bravo, charlie) that were added during debugging (`main`)
+- [ ] [low] Document the todo ID generation change in README or changelog (`main`)
 
 <!-- DEVCTX:END -->
