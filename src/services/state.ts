@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
+import { createHash } from "crypto";
 
 const CLAUDETTE_DIR = ".devctx";
 const ACTIVITY_LOG = "activity.log";
@@ -217,7 +218,7 @@ function saveTodos(repoRoot: string, todos: Todo[]): void {
 
 export function addTodo(repoRoot: string, text: string, priority: Todo["priority"] = "medium", branch?: string, tags?: string[], source?: Todo["source"]): Todo {
   const todos = getTodos(repoRoot);
-  const id = `todo_${Date.now().toString(36)}`;
+  const id = `todo_${createHash("md5").update(`${Date.now()}:${text.slice(0, 20)}`).digest("hex").slice(0, 10)}`;
   const now = new Date().toISOString();
 
   const todo: Todo = {
