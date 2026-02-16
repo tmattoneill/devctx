@@ -68,6 +68,13 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 16/02/2026, 12:00:09
+**Last Updated:** 16/02/2026, 12:10:38
+
+### Active Todos
+- [ ] [high] Implement Source Tagging functionality referenced in README.md line 291 (`main`)
+- [ ] [medium] Complete the manual/suggested items feature mentioned in README.md line 391 (`main`)
+- [ ] [medium] Document the TODO scanner improvements in the project documentation (`main`)
+- [ ] [low] Test TODO scanner on additional file types like Rust, C++, or Ruby to ensure broad coverage (`main`)
+- [ ] [low] Consider adding configuration options for custom TODO keywords beyond TODO/FIXME/HACK/XXX (`main`)
 
 <!-- DEVCTX:END -->
