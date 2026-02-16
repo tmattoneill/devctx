@@ -383,7 +383,7 @@ export function scanSourceTodos(rootDir: string): SourceTodo[] {
             file: relativePath,
             line: i + 1,
             tag: match[1].toUpperCase(),
-            text: match[2].trim(),
+            text: match[2].replace(/\s*(?:\*\/|-->)\s*$/, "").trim(),
           });
         }
       }

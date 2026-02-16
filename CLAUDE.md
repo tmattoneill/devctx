@@ -63,32 +63,11 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 
 > **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.
 
-**Current Focus:** Making small improvements: goodbye behavior and adding devctx to .gitignore
+**Current Focus:** Testing TODO scanning on different project types
 
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 15/02/2026, 19:13:37
-
-### Active Todos
-- [ ] [high] Test the new source TODO scanning on different project types (Python, JavaScript, Go) to validate comment detection (`main`)
-- [ ] [high] Test the complete session workflow: init -> work -> goodbye to verify all features integrate smoothly (`main`)
-- [ ] [high] Test the complete session workflow: init -> work -> goodbye to verify all features integrate smoothly (`main`)
-- [ ] [high] Test the new source TODO scanning on different project types (Python, JavaScript, Go) to validate comment detection (`main`)
-- [ ] [high] Push commit 34d520b to origin to sync the goodbye behavior improvements (`main`)
-- [ ] [high] Test the complete session workflow (init -> work -> goodbye) to verify all features integrate smoothly (`main`)
-- [ ] [high] Test TODO scanning on different project types (Python, JavaScript, Go) to validate comment detection (`main`)
-- [ ] [medium] Add unit tests for the TODO scanning functionality in scanner.ts (`main`)
-- [ ] [medium] Update the README with examples of the TODO scanning output format (`main`)
-- [ ] [medium] Document the slash commands installation process for new users (`main`)
-- [ ] [medium] Complete the README documentation for Source Tagging section (line 265) and items with source tagging (line 365) (`main`)
-- [ ] [medium] Add unit tests for the TODO scanning functionality in scanner.ts (`main`)
-- [ ] [medium] Update the README with examples of the TODO scanning output format (`main`)
-- [ ] [medium] Document the slash commands installation process for new users (`main`)
-- [ ] [medium] Complete the README documentation for Source Tagging section (line 265) and items with source tagging (line 365) (`main`)
-- [ ] [medium] Add unit tests for the TODO scanning functionality in scanner.ts (`main`)
-- [ ] [medium] Add devctx to .gitignore as mentioned in session focus (`main`)
-- [ ] [low] Consider adding configuration options for TODO comment patterns (custom keywords, file extensions) (`main`)
-- [ ] [low] Consider adding configuration options for TODO comment patterns (custom keywords, file extensions) (`main`)
+**Last Updated:** 16/02/2026, 12:00:09
 
 <!-- DEVCTX:END -->
