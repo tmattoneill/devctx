@@ -24,7 +24,7 @@ devctx runs as a **global MCP server** that's **project-scoped** — it detects 
 | `devctx_todo_remove` | write | Remove a todo by ID |
 | `devctx_branch_notes` | read | Get per-branch markdown notes |
 | `devctx_branch_notes_save` | write | Save per-branch documentation |
-| `devctx_git_summary` | read | Git-focused view (branches, commits, push status) |
+| `devctx_git` | read/write | Git operations with auto-logging (commit, push, pull, checkout, merge, stash) or read-only summary |
 | `devctx_sync` | write | Force sync state → CLAUDE.md |
 
 **Write tools** respect the active/paused state. **Read tools** always work.
@@ -113,7 +113,7 @@ Or add to `~/.claude/settings.json`:
       "mcp__devctx__devctx_todo_remove",
       "mcp__devctx__devctx_branch_notes",
       "mcp__devctx__devctx_branch_notes_save",
-      "mcp__devctx__devctx_git_summary",
+      "mcp__devctx__devctx_git",
       "mcp__devctx__devctx_sync"
     ]
   }
@@ -145,7 +145,7 @@ This gives you:
 | `/devctx-goodbye` | End-of-session wrap-up — generates AI summary, saves session record, auto-adds suggested todos, pauses tracking |
 | `/devctx-focus` | Set your current working focus (e.g., "building payment integration") — updates CLAUDE.md |
 | `/devctx-todos` | View, add, update, or filter todos by branch/status/priority |
-| `/devctx-git` | Git-focused summary — recent commits across branches, push status, ahead/behind info |
+| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash |
 
 ## Getting Started
 
@@ -231,6 +231,32 @@ Hooks fire from **any terminal**, not just Claude Code — giving ambient contex
 - Fail silently — never block a git operation
 - Marker-based — existing user hooks are preserved, devctx sections are replaceable
 - Idempotent — re-running `devctx_init` updates hooks without duplication
+- Skip-aware — hooks check `DEVCTX_SKIP_HOOKS` and exit early when `devctx_git` is the caller, preventing duplicate log entries
+
+### Git Operations (`devctx_git`)
+
+Beyond passive hook capture, `devctx_git` lets Claude Code execute git operations directly — with automatic activity logging so the dashboard and session records stay accurate.
+
+```
+> Commit these changes with message "Add payment handler"
+> Push to origin
+> Create and switch to feature/webhooks
+> Merge feature/webhooks into main with --no-ff
+> Stash my current changes
+```
+
+| Command | Parameters | Notes |
+|---------|-----------|-------|
+| `commit` | `message` (required), `files` (optional) | Stages specific files or commits what's staged |
+| `push` | `remote`, `force` | Uses `--force-with-lease` (never raw `--force`) |
+| `pull` | `remote`, `rebase` | Supports `--rebase` |
+| `checkout` | `branch` (required), `create` | `-b` for new branches |
+| `merge` | `branch` (required), `no_ff`, `squash` | `--no-ff` and `--squash` flags |
+| `stash` | `action` (push/pop/list/drop), `message` | Default action is push |
+
+Called with no command, `devctx_git` returns a read-only summary (branches, commits, status) — same as the old `devctx_git_summary`.
+
+Operations set `DEVCTX_SKIP_HOOKS=1` in the environment so git hooks don't double-log activity that `devctx_git` already logs itself. Branch names are validated against a strict pattern to prevent shell injection.
 
 ### Auto-Session-Start
 
