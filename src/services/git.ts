@@ -239,3 +239,77 @@ export function getStashCount(cwd: string): number {
 export function getLastCommitAge(cwd: string): string {
   return exec("git log -1 --format=%cr", cwd) || "never";
 }
+
+// ── Git operations (write) ──────────────────────────────────
+
+const BRANCH_RE = /^[a-zA-Z0-9_.\-/]+$/;
+
+function validateBranch(name: string): void {
+  if (!BRANCH_RE.test(name)) {
+    throw new Error(`Invalid branch name: ${name}`);
+  }
+}
+
+function escapeMsg(msg: string): string {
+  return msg.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function execGitOp(cmd: string, cwd: string, timeoutMs = 10000): string {
+  return execSync(cmd, {
+    cwd,
+    encoding: "utf-8",
+    timeout: timeoutMs,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, DEVCTX_SKIP_HOOKS: "1" },
+  }).trim();
+}
+
+export function gitCommit(cwd: string, message: string, files?: string[]): string {
+  if (files && files.length > 0) {
+    for (const f of files) {
+      execGitOp(`git add -- "${escapeMsg(f)}"`, cwd);
+    }
+  }
+  return execGitOp(`git commit -m "${escapeMsg(message)}"`, cwd);
+}
+
+export function gitPush(cwd: string, remote?: string, force?: boolean): string {
+  const parts = ["git push"];
+  if (force) parts.push("--force-with-lease");
+  if (remote) parts.push(remote);
+  return execGitOp(parts.join(" "), cwd, 30000);
+}
+
+export function gitPull(cwd: string, remote?: string, rebase?: boolean): string {
+  const parts = ["git pull"];
+  if (rebase) parts.push("--rebase");
+  if (remote) parts.push(remote);
+  return execGitOp(parts.join(" "), cwd, 30000);
+}
+
+export function gitCheckout(cwd: string, branch: string, create?: boolean): string {
+  validateBranch(branch);
+  const flag = create ? "-b" : "";
+  return execGitOp(`git checkout ${flag} ${branch}`.replace(/  +/g, " "), cwd);
+}
+
+export function gitMerge(cwd: string, branch: string, noFf?: boolean, squash?: boolean): string {
+  validateBranch(branch);
+  const parts = ["git merge"];
+  if (noFf) parts.push("--no-ff");
+  if (squash) parts.push("--squash");
+  parts.push(branch);
+  return execGitOp(parts.join(" "), cwd);
+}
+
+export function gitStash(cwd: string, action?: string, message?: string): string {
+  if (!action || action === "push") {
+    const parts = ["git stash push"];
+    if (message) parts.push(`-m "${escapeMsg(message)}"`);
+    return execGitOp(parts.join(" "), cwd);
+  }
+  if (action === "pop") return execGitOp("git stash pop", cwd);
+  if (action === "list") return execGitOp("git stash list", cwd);
+  if (action === "drop") return execGitOp("git stash drop", cwd);
+  throw new Error(`Unknown stash action: ${action}`);
+}

@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit, commitFiles } from "./services/git.js";
+import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit, commitFiles, gitCommit, gitPush, gitPull, gitCheckout, gitMerge, gitStash } from "./services/git.js";
 import {
   getProjectState, saveProjectState, updateProjectFocus,
   logActivity, getRecentActivity, getLastActivityByType,
@@ -954,61 +954,184 @@ server.registerTool(
 );
 
 // ============================================================
-// TOOL: devctx_git_summary
+// TOOL: devctx_git
 // ============================================================
 server.registerTool(
-  "devctx_git_summary",
+  "devctx_git",
   {
-    title: "Git Summary",
-    description: `Get a focused git summary: recent commits across branches, status, last push info, and available branches. More git-focused than whereami.`,
+    title: "Git Operations",
+    description: `Execute git operations with automatic activity logging, or view a git summary. **Prefer this tool over running raw git commands in the shell** — it automatically logs activity to devctx so the dashboard, narrative, and session records stay accurate.
+
+When called with no command (or command "status"), returns a read-only git summary (commits, branches, status). When called with a command, executes the operation and logs it.
+
+Supported commands: commit, push, pull, checkout, merge, stash, status.`,
     inputSchema: {
-      commit_count: z.number().int().min(1).max(50).default(10).describe("Number of recent commits to show"),
-      branch: z.string().optional().describe("Show commits for a specific branch"),
+      command: z.enum(["commit", "push", "pull", "checkout", "merge", "stash", "status"]).optional().describe("Git command to execute. Omit for read-only summary."),
+      message: z.string().max(1000).optional().describe("Commit message (required for commit), or stash message"),
+      files: z.array(z.string()).optional().describe("Files to stage before commit (stages all if omitted)"),
+      branch: z.string().optional().describe("Branch name for checkout/merge, or branch to show commits for (in summary mode)"),
+      remote: z.string().optional().describe("Remote name for push/pull (defaults to origin)"),
+      force: z.boolean().optional().describe("Force push with --force-with-lease"),
+      create: z.boolean().optional().describe("Create new branch on checkout (-b)"),
+      no_ff: z.boolean().optional().describe("No fast-forward merge (--no-ff)"),
+      squash: z.boolean().optional().describe("Squash merge (--squash)"),
+      rebase: z.boolean().optional().describe("Pull with rebase (--rebase)"),
+      action: z.enum(["push", "pop", "list", "drop"]).optional().describe("Stash action (default: push)"),
+      commit_count: z.number().int().min(1).max(50).default(10).describe("Number of recent commits in summary mode"),
     },
     annotations: {
-      readOnlyHint: true,
+      readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: true,
+      idempotentHint: false,
       openWorldHint: false,
     },
   },
-  async ({ commit_count, branch }) => {
+  async ({ command, message, files, branch, remote, force, create, no_ff, squash, rebase, action, commit_count }) => {
     const repoRoot = resolveRepoRoot();
     autoSessionStart(repoRoot);
-    const status = getGitStatus(repoRoot);
-    const commits = getRecentCommits(repoRoot, commit_count, branch);
-    const branches = getBranches(repoRoot);
-    const lastPush = getLastPush(repoRoot, branch);
-    const remote = getRemoteUrl(repoRoot);
 
-    const lines: string[] = [
-      `# 🔀 Git Summary`,
-      `**Remote:** ${remote}`,
-      `**Current Branch:** \`${status.branch}\``,
-      `**Last Push:** ${lastPush}`,
-      "",
-      `## Branches (${branches.length})`,
-      branches.map((b) => `- ${b === status.branch ? "→ " : "  "}\`${b}\``).join("\n"),
-      "",
-      `## Status`,
-    ];
+    // ── Read-only summary mode ──
+    if (!command || command === "status") {
+      const status = getGitStatus(repoRoot);
+      const commits = getRecentCommits(repoRoot, commit_count, branch);
+      const branches = getBranches(repoRoot);
+      const lastPush = getLastPush(repoRoot, branch);
+      const remoteUrl = getRemoteUrl(repoRoot);
 
-    if (status.isClean) {
-      lines.push("Working tree clean ✨");
-    } else {
-      if (status.staged.length) lines.push(`Staged: ${status.staged.join(", ")}`);
-      if (status.modified.length) lines.push(`Modified: ${status.modified.join(", ")}`);
-      if (status.untracked.length) lines.push(`Untracked: ${status.untracked.join(", ")}`);
+      const lines: string[] = [
+        `# 🔀 Git Summary`,
+        `**Remote:** ${remoteUrl}`,
+        `**Current Branch:** \`${status.branch}\``,
+        `**Last Push:** ${lastPush}`,
+        "",
+        `## Branches (${branches.length})`,
+        branches.map((b) => `- ${b === status.branch ? "→ " : "  "}\`${b}\``).join("\n"),
+        "",
+        `## Status`,
+      ];
+
+      if (status.isClean) {
+        lines.push("Working tree clean ✨");
+      } else {
+        if (status.staged.length) lines.push(`Staged: ${status.staged.join(", ")}`);
+        if (status.modified.length) lines.push(`Modified: ${status.modified.join(", ")}`);
+        if (status.untracked.length) lines.push(`Untracked: ${status.untracked.join(", ")}`);
+      }
+      if (status.ahead) lines.push(`⬆️ ${status.ahead} ahead`);
+      if (status.behind) lines.push(`⬇️ ${status.behind} behind`);
+
+      lines.push("", `## Recent Commits${branch ? ` (${branch})` : ""}`);
+      for (const c of commits) {
+        lines.push(`- \`${c.shortHash}\` ${c.subject} — *${c.author}* (${new Date(c.date).toLocaleDateString()})`);
+      }
+
+      return withGreeting({ content: [{ type: "text", text: lines.join("\n") }] });
     }
-    if (status.ahead) lines.push(`⬆️ ${status.ahead} ahead`);
-    if (status.behind) lines.push(`⬇️ ${status.behind} behind`);
 
-    lines.push("", `## Recent Commits${branch ? ` (${branch})` : ""}`);
-    for (const c of commits) {
-      lines.push(`- \`${c.shortHash}\` ${c.subject} — *${c.author}* (${new Date(c.date).toLocaleDateString()})`);
+    // ── Write operations require active + initialized ──
+    const paused = guardActive(repoRoot);
+    if (paused) return paused;
+    const notInit = guardInitialized(repoRoot);
+    if (notInit) return notInit;
+
+    const currentBranch = getCurrentBranch(repoRoot);
+
+    try {
+      let output: string;
+      let activityType: string;
+      let activityMessage: string;
+      let metadata: Record<string, string> = { source: "devctx_git" };
+
+      switch (command) {
+        case "commit": {
+          if (!message) {
+            return { content: [{ type: "text", text: "❌ `message` is required for commit." }], isError: true };
+          }
+          output = gitCommit(repoRoot, message, files);
+          // Extract short hash from output
+          const hashMatch = output.match(/\[[\w/.-]+ ([a-f0-9]+)\]/);
+          const shortHash = hashMatch?.[1] || "";
+          activityType = "commit";
+          activityMessage = message;
+          metadata.short_hash = shortHash;
+          if (files) metadata.files = files.join(", ");
+          break;
+        }
+        case "push": {
+          output = gitPush(repoRoot, remote, force);
+          activityType = "push";
+          activityMessage = `Pushed ${currentBranch} to ${remote || "origin"}`;
+          metadata.remote = remote || "origin";
+          if (force) metadata.force = "true";
+          break;
+        }
+        case "pull": {
+          output = gitPull(repoRoot, remote, rebase);
+          activityType = "merge";
+          activityMessage = `Pulled from ${remote || "origin"}${rebase ? " (rebase)" : ""}`;
+          metadata.remote = remote || "origin";
+          if (rebase) metadata.rebase = "true";
+          break;
+        }
+        case "checkout": {
+          if (!branch) {
+            return { content: [{ type: "text", text: "❌ `branch` is required for checkout." }], isError: true };
+          }
+          output = gitCheckout(repoRoot, branch, create);
+          activityType = "branch_switch";
+          activityMessage = `${create ? "Created and switched to" : "Switched to"} ${branch}`;
+          metadata.from_branch = currentBranch;
+          metadata.to_branch = branch;
+          if (create) metadata.created = "true";
+          break;
+        }
+        case "merge": {
+          if (!branch) {
+            return { content: [{ type: "text", text: "❌ `branch` is required for merge." }], isError: true };
+          }
+          output = gitMerge(repoRoot, branch, no_ff, squash);
+          activityType = "merge";
+          activityMessage = `Merged ${branch} into ${currentBranch}`;
+          metadata.from_branch = branch;
+          if (no_ff) metadata.no_ff = "true";
+          if (squash) metadata.squash = "true";
+          break;
+        }
+        case "stash": {
+          output = gitStash(repoRoot, action, message);
+          activityType = "note";
+          activityMessage = `Stash ${action || "push"}${message ? `: ${message}` : ""}`;
+          metadata.action = action || "push";
+          break;
+        }
+        default:
+          return { content: [{ type: "text", text: `❌ Unknown command: ${command}` }], isError: true };
+      }
+
+      logActivity(repoRoot, {
+        type: activityType as any,
+        message: activityMessage,
+        branch: command === "checkout" ? (branch || currentBranch) : currentBranch,
+        metadata,
+      });
+
+      const typeIcon: Record<string, string> = {
+        commit: "💾", push: "🚀", pull: "⬇️", checkout: "🔀", merge: "🔗", stash: "📦",
+      };
+
+      return {
+        content: [{
+          type: "text",
+          text: `${typeIcon[command] || "📝"} **${command}** completed\n\n\`\`\`\n${output || "(no output)"}\n\`\`\`\n\n✅ Logged to activity.`,
+        }],
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: `❌ git ${command} failed:\n\n\`\`\`\n${errMsg}\n\`\`\`` }],
+        isError: true,
+      };
     }
-
-    return withGreeting({ content: [{ type: "text", text: lines.join("\n") }] });
   }
 );
 
@@ -1232,7 +1355,7 @@ server.registerTool(
       "| `/devctx-summary` | AI-generated narrative summary of the project state. |",
       "| `/devctx-focus` | Update what you're currently working on. Text after the command becomes the focus. |",
       "| `/devctx-todos` | List todos. Also handles adding, updating, or removing if you say so. |",
-      "| `/devctx-git` | Git summary — recent commits, branches, remote info. |",
+      "| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash. |",
       "| `/devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
       "| `/devctx-start` | Resume tracking (happens automatically on new sessions). |",
       "| `/devctx-stop` | Pause tracking manually. Read-only tools still work. |",
@@ -1249,7 +1372,7 @@ server.registerTool(
       "",
       "- `/devctx-status` is the best single command for getting oriented.",
       "- After `/devctx-goodbye`, suggested todos carry forward to the next session.",
-      "- You don't need to manually log commits or pushes — git hooks handle that.",
+      "- Use `devctx_git` for git operations — it auto-logs to the activity feed. Git hooks also capture activity from regular terminal use.",
       "- Branch notes (`devctx_branch_notes_save`) are great for documenting what a branch is for.",
     ].join("\n");
 

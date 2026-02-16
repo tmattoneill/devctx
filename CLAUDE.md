@@ -17,7 +17,7 @@ src/
   index.ts              # Tool registration, handlers, MCP server setup, auto-session-start
   services/
     scanner.ts          # Project auto-detection (language, framework, CI/CD, infra)
-    git.ts              # Git operations (status, branches, commits, init)
+    git.ts              # Git operations (status, branches, commits, init, commit, push, pull, checkout, merge, stash)
     state.ts            # .devctx/ state management (todos, activity log, focus)
     hooks.ts            # Git hook templates and installer (post-commit, post-checkout, post-merge, pre-push)
     dashboard.ts        # ASCII status dashboard renderer
@@ -48,7 +48,7 @@ No test framework yet. Manual testing via throwaway git repos in `/tmp/`.
 
 ## Tools (18 total)
 
-devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_summary, devctx_whereami, devctx_update_focus, devctx_log, devctx_activity, devctx_todo_add, devctx_todo_update, devctx_todo_list, devctx_todo_remove, devctx_branch_notes, devctx_branch_notes_save, devctx_sync, devctx_git_summary
+devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_summary, devctx_whereami, devctx_update_focus, devctx_log, devctx_activity, devctx_todo_add, devctx_todo_update, devctx_todo_list, devctx_todo_remove, devctx_branch_notes, devctx_branch_notes_save, devctx_sync, devctx_git
 
 ## Important conventions
 

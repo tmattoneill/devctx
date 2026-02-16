@@ -12,6 +12,7 @@ ${START_MARKER}
 # Log commits to .devctx/activity.log
 (
   set +e
+  [ "$DEVCTX_SKIP_HOOKS" = "1" ] && exit 0
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   DEVCTX_DIR="$REPO_ROOT/.devctx"
   [ -d "$DEVCTX_DIR" ] || exit 0
@@ -40,6 +41,7 @@ ${START_MARKER}
 # Log branch switches to .devctx/activity.log
 (
   set +e
+  [ "$DEVCTX_SKIP_HOOKS" = "1" ] && exit 0
   # Only fire on branch checkout (3rd arg = 1), not file checkout (0)
   [ "$3" = "1" ] || exit 0
 
@@ -65,6 +67,7 @@ ${START_MARKER}
 # Log merges to .devctx/activity.log
 (
   set +e
+  [ "$DEVCTX_SKIP_HOOKS" = "1" ] && exit 0
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   DEVCTX_DIR="$REPO_ROOT/.devctx"
   [ -d "$DEVCTX_DIR" ] || exit 0
@@ -87,6 +90,7 @@ ${START_MARKER}
 # Log pushes to .devctx/activity.log
 (
   set +e
+  [ "$DEVCTX_SKIP_HOOKS" = "1" ] && exit 0
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   DEVCTX_DIR="$REPO_ROOT/.devctx"
   [ -d "$DEVCTX_DIR" ] || exit 0

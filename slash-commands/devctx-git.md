@@ -1,1 +1,1 @@
-Show me a git summary for this project. Call devctx_git_summary with 10 recent commits. If I specify a branch after this command, filter to that branch.
+Show me a git summary for this project, or execute a git operation. Call devctx_git. If I specify a command (commit, push, pull, checkout, merge, stash) after this slash command, pass it as the command parameter along with any options I mention. If I just say /devctx-git with no command, call it with no command to get the read-only summary. If I specify a branch, pass it in the branch parameter.
