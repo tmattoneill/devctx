@@ -1282,11 +1282,14 @@ server.registerTool(
       // Pause tracking
       setDevctxActive(repoRoot, false);
 
-      // Sync CLAUDE.md and auto-commit it
+      // Sync CLAUDE.md, auto-commit, and push so we leave clean
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
       updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
-      commitFiles(repoRoot, ["CLAUDE.md"], "devctx: session goodbye");
+      const committed = commitFiles(repoRoot, ["CLAUDE.md"], "devctx: session goodbye");
+      if (committed) {
+        try { gitPush(repoRoot); } catch { /* best effort — offline is fine */ }
+      }
 
       // Count branches worked on
       const branchSet = new Set(recentActivity.map(a => a.branch));
