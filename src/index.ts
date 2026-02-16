@@ -812,14 +812,21 @@ server.registerTool(
 
     const state = setDevctxActive(repoRoot, true);
 
+    // Ensure git hooks are installed (idempotent)
+    const hookResult = installHooks(repoRoot);
+
     logActivity(repoRoot, {
       type: "session_start",
       message: "devctx tracking resumed",
       branch: getCurrentBranch(repoRoot),
     });
 
+    const hookNote = hookResult.installed.length > 0
+      ? `\n✅ Git hooks verified: ${hookResult.installed.join(", ")}`
+      : "";
+
     return {
-      content: [{ type: "text", text: `▶️ devctx resumed for **${state.projectName}**.\n\nAll operations are active. Current focus: ${state.currentFocus || "(not set)"}\nUse \`devctx_whereami\` to see where you left off.` }],
+      content: [{ type: "text", text: `▶️ devctx resumed for **${state.projectName}**.\n\nAll operations are active. Current focus: ${state.currentFocus || "(not set)"}\nUse \`devctx_whereami\` to see where you left off.${hookNote}` }],
     };
   }
 );
