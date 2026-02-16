@@ -68,13 +68,18 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 16/02/2026, 12:31:40
+**Last Updated:** 16/02/2026, 12:35:16
 
 ### Active Todos
 - [ ] [high] Check if staged 'LAUDE.md' should be 'CLAUDE.md' and commit the staged changes (`main`)
+- [ ] [high] Validate the MD5 hash todo ID fix by running a full goodbye process and checking for unique IDs (`main`)
 - [ ] [medium] Validate the MD5 hash todo ID fix by running a full goodbye process and checking for unique IDs (`main`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
+- [ ] [medium] Clean up the test todos (alpha, bravo, charlie) that were added during debugging (`main`)
+- [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
+- [ ] [medium] Add automated tests for the TODO scanner to prevent regression (`main`)
 - [ ] [low] Clean up the test todos (alpha, bravo, charlie) that were added during debugging (`main`)
+- [ ] [low] Document the todo ID generation change in README or changelog (`main`)
 - [ ] [low] Document the todo ID generation change in README or changelog (`main`)
 
 <!-- DEVCTX:END -->
