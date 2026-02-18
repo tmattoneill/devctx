@@ -1,5 +1,5 @@
 import type { GitStatus, BranchInfo } from "./git.js";
-import type { ProjectState, Todo, ActivityEntry } from "./state.js";
+import type { ProjectState, Todo, ActivityEntry } from "../shared/types.js";
 
 // ── Utility formatters ──────────────────────────────────────
 

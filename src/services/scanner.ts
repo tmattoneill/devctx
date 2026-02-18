@@ -315,12 +315,9 @@ export function scanProject(rootDir: string): ProjectScan {
 
 // ── Source TODO scanner ─────────────────────────────────────
 
-export interface SourceTodo {
-  file: string;   // relative path from repo root
-  line: number;
-  tag: string;    // "TODO" | "FIXME" | "HACK" | "XXX"
-  text: string;   // the comment text after the tag
-}
+// Re-export SourceTodo from shared types for backwards compatibility
+export type { SourceTodo } from "../shared/types.js";
+import type { SourceTodo } from "../shared/types.js";
 
 const SOURCE_EXTENSIONS = new Set([
   ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".kt",

@@ -1,5 +1,5 @@
 import type { GitCommit, GitStatus } from "./git.js";
-import type { ProjectState, Todo, ActivityEntry } from "./state.js";
+import type { ProjectState, Todo, ActivityEntry } from "../shared/types.js";
 
 export function formatWhereAmI(
   repoRoot: string,

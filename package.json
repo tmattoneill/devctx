@@ -5,20 +5,33 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "devctx-mcp": "dist/index.js"
+    "devctx-mcp": "dist/index.js",
+    "devctx-dash": "dist/dashboard/cli.js"
   },
   "scripts": {
     "build": "tsc",
+    "build:dashboard": "vite build --config src/dashboard/client/vite.config.ts",
+    "build:all": "tsc && vite build --config src/dashboard/client/vite.config.ts",
     "start": "node dist/index.js",
+    "dashboard": "node dist/dashboard/cli.js",
+    "dashboard:dev": "node dist/dashboard/cli.js --dev",
     "dev": "tsc --watch"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
+    "@fastify/static": "^9.0.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "fastify": "^5.7.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zod": "^3.24.4"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
-    "typescript": "^5.8.3"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.1"
   }
 }

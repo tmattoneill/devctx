@@ -13,13 +13,14 @@ import {
   updateClaudeMd,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
   saveSourceTodos, getSourceTodos,
-} from "./services/state.js";
+  saveSessionRecord,
+} from "./shared/index.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
 import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
 import { scanProject, formatScanReport, generateAutoDescription, scanSourceTodos, formatSourceTodos } from "./services/scanner.js";
 import { installHooks } from "./services/hooks.js";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 // --- Resolve project root ---
@@ -1237,13 +1238,7 @@ server.registerTool(
       });
 
       // Save session record
-      const sessionsDir = join(repoRoot, ".devctx", "sessions");
-      mkdirSync(sessionsDir, { recursive: true });
-
       const now = new Date();
-      const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
-      const sessionFile = join(sessionsDir, `${dateStr}.md`);
-
       const sessionRecord = [
         `# Session: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
         `**Branch:** ${status.branch}`,
@@ -1264,7 +1259,7 @@ server.registerTool(
         "",
       ].join("\n");
 
-      writeFileSync(sessionFile, sessionRecord);
+      const sessionFile = saveSessionRecord(repoRoot, sessionRecord);
 
       // Add suggested todos
       const branch = getCurrentBranch(repoRoot);
@@ -1318,7 +1313,7 @@ server.registerTool(
             ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
             ...todoDiffLines,
             "",
-            `Session record: \`.devctx/sessions/${dateStr}.md\``,
+            `Session record: \`${sessionFile.substring(repoRoot.length + 1)}\``,
             "",
             "Tracking paused. See you next time!",
           ].join("\n"),
