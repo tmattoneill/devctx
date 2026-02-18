@@ -413,3 +413,39 @@ export function saveSessionRecord(repoRoot: string, content: string): string {
   writeFileSync(sessionFile, content);
   return sessionFile;
 }
+
+export interface SessionInfo {
+  filename: string;
+  timestamp: string; // ISO string derived from filename
+}
+
+export function listSessions(repoRoot: string): SessionInfo[] {
+  const sessionsDir = join(repoRoot, ".devctx", "sessions");
+  if (!existsSync(sessionsDir)) return [];
+
+  return readdirSync(sessionsDir)
+    .filter(f => f.endsWith(".md"))
+    .sort()
+    .reverse()
+    .map(filename => {
+      // filename format: 2026-02-18T17-09-45.md — restore colons for ISO
+      const stem = filename.replace(/\.md$/, "");
+      const iso = stem.replace(/-(\d{2})-(\d{2})$/, ":$1:$2")
+        .replace(/T(\d{2})-/, "T$1:");
+      return { filename, timestamp: iso };
+    });
+}
+
+export function getSessionContent(repoRoot: string, filename: string): string | null {
+  // Sanitize: only allow .md files, no path traversal
+  if (!filename.endsWith(".md") || filename.includes("/") || filename.includes("..")) {
+    return null;
+  }
+  const filePath = join(repoRoot, ".devctx", "sessions", filename);
+  if (!existsSync(filePath)) return null;
+  try {
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return null;
+  }
+}
