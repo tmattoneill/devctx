@@ -1,58 +1,141 @@
-# devctx — Development Context Tracker for Claude Code
+# devctx — Persistent Memory for Claude Code
 
-A project-aware development context MCP server. Part logger, part project manager, part git companion.
+Claude Code forgets everything between sessions. Compact the conversation, restart, or come back next week — gone. You re-explain, re-orient, burn tokens rebuilding context that existed five minutes ago.
 
-devctx runs as a **global MCP server** that's **project-scoped** — it detects which git repo you're in and maintains per-project state. It logs activity, tracks todos, keeps per-branch notes, and syncs everything to your `CLAUDE.md` so Claude Code always has context.
+devctx fixes this. It's an MCP server that logs what you do, tracks what's outstanding, and feeds it all back to Claude automatically when you return. Think of it as a save game for your development session.
+
+**Built with Claude Code. Built for Claude Code.**
+
+## Three problems, one tool
+
+### 1. Context that survives compaction and restarts
+
+devctx writes project state to disk — `.devctx/` in your repo root. Activity logs, branch state, session records, your current focus. When Claude's context window resets, devctx doesn't. It reads fresh from disk on every session start.
+
+### 2. Structured todo tracking
+
+Not comments buried in code. Tracked, prioritised, branch-aware items that Claude can create, update, and complete through the MCP. Tag them, scope them to branches, filter by status. The `/devctx-goodbye` command even suggests new todos based on your session — tagged `[suggested]` so you can promote or dismiss them.
+
+### 3. Stale project recovery
+
+You haven't touched a project in three weeks. You've completely lost mental context. Run `/devctx-status` and Claude tells you what you were doing, what's outstanding, what state the branches are in. It reads your session history, git log, todos, and branch notes to reconstruct the picture. No re-explanation needed.
+
+## Dashboard
+
+devctx includes a web dashboard that visualises your project state in the browser. Activity logs, todos, git status, session history — all drawn from the same `.devctx` data the MCP reads.
+
+```bash
+node dist/dashboard/cli.js
+# Opens localhost:3333
+```
+
+Flags: `--port`, `--no-open`, `--dev`. Ctrl+C to stop.
+
+## How it works
+
+devctx runs as a **global MCP server** that's **project-scoped**. One installation, per-repo state. It detects which git repo you're in and maintains a `.devctx/` directory there.
+
+It syncs key state to your `CLAUDE.md` between markers — focus, branch, active todos — so Claude has context before any tool is called. Everything outside the markers is untouched.
+
+### Git hooks (passive capture)
+
+During init, devctx installs four hooks into `.git/hooks/`:
+
+| Hook | What it logs |
+|------|-------------|
+| `post-commit` | Every commit (hash, subject, author) |
+| `post-checkout` | Branch switches |
+| `post-merge` | Merges |
+| `pre-push` | Pushes |
+
+These fire from any terminal, not just Claude Code. Ambient context capture. They append to `.devctx/activity.log` silently, fail silently, and never block a git operation.
+
+### Auto-session-start
+
+The first devctx tool call in any new conversation automatically resumes tracking, logs a `session_start` entry, and prepends a greeting with your current focus, branch, and outstanding todos.
+
+### Goodbye (session wrap-up)
+
+```
+/devctx-goodbye picking this up Thursday, blocked on API key from Dave
+```
+
+The save button. Goodbye gathers your commits, activity, git status, and todos, then generates a session record with three sections: what happened, what's unfinished, and suggested next steps. It saves the record to `.devctx/sessions/`, auto-adds suggested todos, syncs CLAUDE.md, commits it, and pauses tracking.
+
+Next time you open the project, `/devctx-status` reads this file to tell you where you left off.
+
+### Source TODO scanning
+
+devctx scans your codebase for `TODO`, `FIXME`, `HACK`, and `XXX` comments during init and goodbye. It diffs the results across sessions so you can see which code TODOs were added or resolved. Supports 26+ file extensions across all common languages.
+
+### AI narrative
+
+When you have an `ANTHROPIC_API_KEY` set, status and goodbye commands call `claude-sonnet-4-20250514` to generate a prose summary of your session — recent work, deploy status, prioritised next steps. Token limits are conservative (600 for status, 1200 for goodbye). Without the key, you get a deterministic fallback that's still useful.
 
 ## Tools (18)
 
 | Tool | Type | Description |
 |------|------|-------------|
-| `devctx_init` | meta | Initialize devctx for a project (installs git hooks, safe on existing projects) |
+| `devctx_init` | meta | Initialise for a project (scans language/framework, installs git hooks) |
 | `devctx_start` | meta | Resume tracking after pause |
 | `devctx_stop` | meta | Pause tracking (reads still work) |
-| `devctx_goodbye` | meta | Session wrap-up — AI summary, auto-todos, pause tracking |
-| `devctx_status` | read | Full dashboard with branches, todos, vitals + AI narrative |
-| `devctx_summary` | read | AI-generated narrative only (last session, state, next steps) |
+| `devctx_goodbye` | meta | Session wrap-up — AI summary, auto-todos, pause |
+| `devctx_status` | read | Full dashboard with branches, todos, vitals, AI narrative |
+| `devctx_summary` | read | AI-generated narrative only |
 | `devctx_whereami` | read | Full project context dump |
-| `devctx_update_focus` | write | Set what you're working on → syncs to CLAUDE.md |
-| `devctx_log` | write | Log commits, pushes, builds, deploys, milestones, merges, branch switches |
-| `devctx_activity` | read | View the activity log, filter by type |
+| `devctx_update_focus` | write | Set current focus → syncs to CLAUDE.md |
+| `devctx_log` | write | Log commits, pushes, builds, deploys, milestones, merges |
+| `devctx_activity` | read | View activity log, filter by type |
 | `devctx_todo_add` | write | Add todo with priority, branch scope, tags |
 | `devctx_todo_update` | write | Change todo status, priority, text |
 | `devctx_todo_list` | read | List todos, filter by branch or status |
 | `devctx_todo_remove` | write | Remove a todo by ID |
 | `devctx_branch_notes` | read | Get per-branch markdown notes |
 | `devctx_branch_notes_save` | write | Save per-branch documentation |
-| `devctx_git` | read/write | Git operations with auto-logging (commit, push, pull, checkout, merge, stash) or read-only summary |
+| `devctx_git` | read/write | Git operations with auto-logging |
 | `devctx_sync` | write | Force sync state → CLAUDE.md |
 
-**Write tools** respect the active/paused state. **Read tools** always work.
+Write tools respect the active/paused state. Read tools always work.
+
+## Slash commands
+
+Copy to your global commands directory:
+
+```bash
+cp slash-commands/*.md ~/.claude/commands/
+```
+
+| Command | Purpose |
+|---------|---------|
+| `/devctx-init` | Initialise for current project |
+| `/devctx-status` | Full dashboard with AI recap |
+| `/devctx-summary` | AI narrative only |
+| `/devctx-whereami` | Complete context dump |
+| `/devctx-start` | Resume tracking |
+| `/devctx-stop` | Pause tracking |
+| `/devctx-goodbye` | Session wrap-up |
+| `/devctx-focus` | Set current focus |
+| `/devctx-todos` | Manage todos |
+| `/devctx-git` | Git operations with logging |
+| `/devctx-help` | Show available commands |
 
 ## Installation
 
 ```bash
-# Clone or copy this directory
-cd devctx-mcp-server
-
-# Install and build
+git clone https://github.com/tmattoneill/devctx.git
+cd devctx
 npm install
 npm run build
-
-# Optional: install globally for easy path reference
-npm link
 ```
 
-### Claude Code MCP Config
-
-Add to your **global** Claude Code settings (`~/.claude/settings.json`):
+Add to your global Claude Code settings (`~/.claude/settings.json`):
 
 ```json
 {
   "mcpServers": {
     "devctx": {
       "command": "node",
-      "args": ["/absolute/path/to/devctx-mcp-server/dist/index.js"],
+      "args": ["/absolute/path/to/devctx/dist/index.js"],
       "env": {
         "ANTHROPIC_API_KEY": "sk-ant-..."
       }
@@ -61,311 +144,49 @@ Add to your **global** Claude Code settings (`~/.claude/settings.json`):
 }
 ```
 
-> **ANTHROPIC_API_KEY** enables the AI narrative summary in `devctx_status`, `devctx_summary`, and `devctx_goodbye`. Without it, you get a deterministic fallback that's still useful — just less eloquent. The key is used to call `claude-sonnet-4-20250514` with conservative token limits (600 for status/summary, 1200 for goodbye) — typically fractions of a cent per call.
-
-Or if you used `npm link`:
-
-```json
-{
-  "mcpServers": {
-    "devctx": {
-      "command": "devctx-mcp",
-      "args": [],
-      "env": {}
-    }
-  }
-}
-```
+The API key enables AI narrative summaries. Without it, everything works — the summaries just use a deterministic fallback.
 
 ### Permissions
 
-devctx tools read/write to `.devctx/` (gitignored) and `CLAUDE.md` in your project. Since these are local file operations and the MCP server is trusted, you'll want to allow its tools so Claude Code doesn't prompt you on every call.
-
-**Recommended: allow all devctx tools at the system level** (since devctx is a global MCP server used across all projects):
+devctx reads and writes to `.devctx/` (gitignored) and `CLAUDE.md`. Allow all tools at the system level to avoid per-call prompts:
 
 ```bash
-# In Claude Code, run:
 /permissions
-
-# Then add:
-# Allow: mcp__devctx  (allows all devctx_* tools)
+# Add: mcp__devctx
 ```
 
-Or add to `~/.claude/settings.json`:
+Or in `~/.claude/settings.json`:
 
 ```json
 {
   "permissions": {
-    "allow": [
-      "mcp__devctx__devctx_init",
-      "mcp__devctx__devctx_start",
-      "mcp__devctx__devctx_stop",
-      "mcp__devctx__devctx_goodbye",
-      "mcp__devctx__devctx_status",
-      "mcp__devctx__devctx_summary",
-      "mcp__devctx__devctx_whereami",
-      "mcp__devctx__devctx_update_focus",
-      "mcp__devctx__devctx_log",
-      "mcp__devctx__devctx_activity",
-      "mcp__devctx__devctx_todo_add",
-      "mcp__devctx__devctx_todo_update",
-      "mcp__devctx__devctx_todo_list",
-      "mcp__devctx__devctx_todo_remove",
-      "mcp__devctx__devctx_branch_notes",
-      "mcp__devctx__devctx_branch_notes_save",
-      "mcp__devctx__devctx_git",
-      "mcp__devctx__devctx_sync"
-    ]
+    "allow": ["mcp__devctx"]
   }
 }
 ```
 
-Alternatively, if you prefer per-project control, add the same permissions to your project's `.claude/settings.json` instead.
+devctx never modifies source code, runs arbitrary shell commands, or accesses the network (except the optional AI narrative).
 
-> **Why system-level?** devctx only touches `.devctx/` (gitignored) and the `<!-- DEVCTX -->` markers in `CLAUDE.md`. It never modifies source code, runs shell commands, or accesses the network (except the optional AI narrative via `ANTHROPIC_API_KEY`). Allowing it globally avoids repetitive permission prompts across projects.
+## Getting started
 
-### Dependencies
+Run `/devctx-init` in any directory. devctx detects your situation:
 
-| Package | Purpose |
-|---------|---------|
-| `@anthropic-ai/sdk` | AI narrative generation (status, summary, goodbye) |
-| `@modelcontextprotocol/sdk` | MCP protocol server implementation |
-| `zod` | Input schema validation for all 18 tools |
+**New directory** — initialises git, creates `.devctx/`, installs hooks, makes first commit.
 
-### Slash Commands (optional but recommended)
+**Existing files, no git** — scans your project (language, frameworks, build tools, CI/CD, infra), initialises git, creates `.devctx/` with detected metadata.
 
-Copy the included slash commands to your global Claude Code commands directory:
+**Existing git repo** — scans the project, creates `.devctx/`, installs hooks, picks up existing branches and remote info.
 
-```bash
-cp slash-commands/*.md ~/.claude/commands/
-```
+**Already initialised** — shows current state. Pass `force: true` to re-scan (preserves todos, logs, notes).
 
-This gives you 11 slash commands:
+The scanner detects languages (JS, TS, Python, Rust, Go, Java, and more), frameworks (Next.js, React, Vue, Express, FastAPI, Django, and others), build tools, CI/CD pipelines, and infrastructure config. It pulls project metadata from package.json, Cargo.toml, pyproject.toml, or go.mod.
 
-| Command | What it does |
-|---------|-------------|
-| `/devctx-init` | Initialize devctx for the current project — scans language/framework, creates `.devctx/`, installs git hooks, syncs CLAUDE.md |
-| `/devctx-status` | Full dashboard: branches, todos, vitals, working tree + AI narrative recap of your last session |
-| `/devctx-summary` | Standalone AI narrative — recaps last session, current state, prioritized next steps |
-| `/devctx-whereami` | Complete project context dump — branch, status, recent commits, todos, activity log, branch notes |
-| `/devctx-start` | Resume tracking after a pause — re-enables logging and shows where you left off |
-| `/devctx-stop` | Pause all write operations — reads still work, nothing is deleted |
-| `/devctx-goodbye` | End-of-session wrap-up — generates AI summary, saves session record, auto-adds suggested todos, pauses tracking |
-| `/devctx-focus` | Set your current working focus (e.g., "building payment integration") — updates CLAUDE.md |
-| `/devctx-todos` | View, add, update, or filter todos by branch/status/priority |
-| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash |
-| `/devctx-help` | Show available slash commands and how devctx works |
-
-## Getting Started
-
-Run `/devctx-init` in any directory. devctx auto-detects your situation:
-
-### Empty directory (new project)
+## Day-to-day
 
 ```
-> /devctx-init
+> I'm working on the payment integration
 ```
-
-devctx will:
-1. Initialize a git repo (`main` branch)
-2. Create `.devctx/` structure (auto-gitignored)
-3. Install git hooks for passive activity capture
-4. Create an initial commit
-5. Skip CLAUDE.md (nothing to document yet)
-
-You're ready to start coding immediately.
-
-### Existing files, no git
-
-```
-> /devctx-init
-```
-
-devctx will:
-1. **Scan the project** — auto-detects language, frameworks, build tools, CI/CD, infra
-2. Initialize a git repo
-3. Create `.devctx/` with detected metadata (name, description from package.json/Cargo.toml/etc.)
-4. Install git hooks
-5. Create an initial commit with all existing files
-6. Write context to CLAUDE.md
-
-### Existing git repo
-
-```
-> /devctx-init
-```
-
-devctx will:
-1. **Scan the project** — same detection as above
-2. Create `.devctx/` (auto-gitignored)
-3. Install git hooks into `.git/hooks/`
-4. Pick up existing branches, commits, remote info
-5. Write context to CLAUDE.md
-
-### Already initialized
-
-```
-> /devctx-init
-```
-
-Shows current state and exits. Use `force: true` to re-scan and update metadata (preserves todos, activity log, branch notes).
-
-### What the scanner detects
-
-| Category | Examples |
-|----------|---------|
-| **Languages** | JavaScript, TypeScript, Python, Rust, Go, Java, Kotlin, C/C++ |
-| **Frameworks** | Next.js, React, Vue, Angular, Svelte, Express, FastAPI, Django, Flask |
-| **Build tools** | npm, pnpm, Yarn, Bun, Vite, Webpack, Cargo, Make, Maven, Gradle, Poetry, uv |
-| **CI/CD** | GitHub Actions, GitLab CI, Jenkins, CircleCI, Travis, Bitbucket Pipelines |
-| **Infrastructure** | Docker, Vercel, Netlify, Fly.io, Serverless, Terraform, Kubernetes, Railway |
-| **Metadata** | Name + description from package.json, Cargo.toml, pyproject.toml, go.mod |
-
-### Source Code TODO Scanning
-
-During `devctx_init` (and again during `devctx_goodbye`), devctx scans your source files for inline TODO comments.
-
-**Tags detected:** `TODO`, `FIXME`, `HACK`, `XXX`
-
-**Supported file extensions (26+):** `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`, `.go`, `.java`, `.kt`, `.c`, `.cpp`, `.h`, `.hpp`, `.cs`, `.rb`, `.sh`, `.yaml`, `.yml`, `.toml`, `.md`, `.html`, `.css`, `.scss`, `.svelte`, `.vue`, `.swift`, `.zig`
-
-**Scan limits:**
-- Max directory depth: 5
-- Max files scanned: 500
-- Max lines per file: 10,000
-
-**Skipped directories:** `node_modules`, `__pycache__`, `dist`, `build`, `target`, `.devctx`, `.git`, `vendor`, `.next`, `.nuxt`, `coverage`, `.turbo`
-
-Results are saved to `.devctx/source-todos.json`. During goodbye, the current scan is diffed against the previous one to show which TODOs were added or resolved during the session.
-
-## Session Intelligence
-
-### Git Hooks (passive capture)
-
-During `devctx_init`, devctx installs four git hooks into `.git/hooks/`:
-
-| Hook | Activity logged |
-|------|----------------|
-| `post-commit` | Every commit (hash, subject, author) |
-| `post-checkout` | Branch switches (from/to branch) |
-| `post-merge` | Merges (squash flag) |
-| `pre-push` | Pushes (remote name) |
-
-Hooks fire from **any terminal**, not just Claude Code — giving ambient context capture. They append JSON entries to `.devctx/activity.log` silently.
-
-- POSIX-compatible (`/bin/sh`) — works on macOS and Linux
-- Fail silently — never block a git operation
-- Marker-based — existing user hooks are preserved, devctx sections are replaceable
-- Idempotent — re-running `devctx_init` updates hooks without duplication
-- Skip-aware — hooks check `DEVCTX_SKIP_HOOKS` and exit early when `devctx_git` is the caller, preventing duplicate log entries
-
-### Git Operations (`devctx_git`)
-
-Beyond passive hook capture, `devctx_git` lets Claude Code execute git operations directly — with automatic activity logging so the dashboard and session records stay accurate.
-
-```
-> Commit these changes with message "Add payment handler"
-> Push to origin
-> Create and switch to feature/webhooks
-> Merge feature/webhooks into main with --no-ff
-> Stash my current changes
-```
-
-| Command | Parameters | Notes |
-|---------|-----------|-------|
-| `commit` | `message` (required), `files` (optional) | Stages specific files or commits what's staged |
-| `push` | `remote`, `force` | Uses `--force-with-lease` (never raw `--force`) |
-| `pull` | `remote`, `rebase` | Supports `--rebase` |
-| `checkout` | `branch` (required), `create` | `-b` for new branches |
-| `merge` | `branch` (required), `no_ff`, `squash` | `--no-ff` and `--squash` flags |
-| `stash` | `action` (push/pop/list/drop), `message` | Default action is push |
-| `status` | `branch`, `commit_count` | Read-only summary (same as omitting command) |
-
-Called with no command (or `"status"`), `devctx_git` returns a read-only summary (branches, commits, status) — same as the old `devctx_git_summary`.
-
-Operations set `DEVCTX_SKIP_HOOKS=1` in the environment so git hooks don't double-log activity that `devctx_git` already logs itself. Branch names are validated against a strict pattern to prevent shell injection.
-
-### Auto-Session-Start
-
-When Claude Code first calls any devctx tool in a new conversation, devctx automatically:
-
-1. **Resumes tracking** if it was paused (a new MCP process means a new Claude Code session)
-2. **Logs a `session_start` entry** — fires exactly once per MCP server process, giving goodbye a reliable start timestamp
-3. **Builds a session greeting** prepended to the first tool response, showing:
-   - Current focus
-   - Current branch
-   - Whether tracking was resumed from a paused state
-   - Count of suggested todos from the last goodbye session
-   - Reminder to use `/devctx-goodbye` when done
-
-Additionally, the `CLAUDE.md` sync includes an instruction telling Claude to greet the user with a brief summary of the project context (focus, branch, active todos) when starting a new conversation. This ensures context continuity even before any devctx tool is called.
-
-### Goodbye (Session Wrap-Up)
-
-```
-> /devctx-goodbye
-```
-
-or with a parting note:
-
-```
-> /devctx-goodbye picking this up Thursday, blocked on API key from Dave
-```
-
-The "save game" button. When you're done for the day, goodbye:
-
-1. **Gathers context** — commits, activity log, git status, branches, todos, CLAUDE.md
-2. **Generates an AI session record** with three sections:
-   - **What happened** — detailed narrative referencing specific commits and files
-   - **Unfinished work** — uncommitted changes, WIP branches, ahead/behind status
-   - **Suggested next steps** — 3-7 actionable items inferred from the session
-3. **Saves to** `.devctx/sessions/{datetime}.md` — persistent session records
-4. **Auto-adds suggested todos** — tagged as `[suggested]` so you can promote or dismiss them
-5. **Logs** `session_end` and **pauses tracking**
-6. **Syncs** CLAUDE.md with latest state
-7. **Auto-commits** `CLAUDE.md` with message `"devctx: session goodbye"` and **attempts a push** (fails silently if offline or no remote)
-
-Next time you open the project, `/devctx-status` reads the most recent session file to generate a richer "Previously on..." narrative.
-
-### Source TODO Tracking in Goodbye
-
-During goodbye, devctx re-scans your source code for TODO/FIXME/HACK/XXX comments and diffs the results against the previous scan (saved during init or the last goodbye). The session record includes:
-
-- **New code TODOs added** this session (with file, line, and tag)
-- **Code TODOs resolved** this session (present in the previous scan but no longer found)
-
-This gives you a clear picture of technical debt movement per session without any manual tracking.
-
-### Todo Source Tagging
-
-Todos created by `devctx_goodbye` are tagged as `[suggested]` in the dashboard and todo list, visually distinguishing them from manually-created todos. This lets you quickly identify AI-generated items and decide whether to keep or dismiss them.
-
-## Returning to a project
-
-```
-> /devctx-status
-```
-
-Full dashboard with AI narrative recap, branches, todos, vitals. If a goodbye session record exists, the narrative incorporates it for a richer cold open.
-
-### Pausing / resuming
-
-```
-> /devctx-stop
-```
-Pauses all write operations. You can still read your project state (whereami, todos, git summary). Nothing is deleted.
-
-```
-> /devctx-start
-```
-Resumes tracking and shows where you left off.
-
-### Day-to-day usage
-
-```
-> I'm now working on the payment integration
-```
-Updates focus, syncs to CLAUDE.md
+Updates focus, syncs to CLAUDE.md.
 
 ```
 > Add a high priority todo: fix the race condition in the webhook handler
@@ -374,97 +195,45 @@ Updates focus, syncs to CLAUDE.md
 ```
 
 ```
-> Save notes for this branch: implementing OAuth2 PKCE, using passport.js, refresh tokens in httpOnly cookies
+> Save notes for this branch: implementing OAuth2 PKCE, refresh tokens in httpOnly cookies
 ```
 
 ```
-> Log a deployment: v2.3.1 pushed to production, all health checks passing
+> Log a deployment: v2.3.1 pushed to production
 ```
 
-## AI Narrative Summary
-
-When you run `/devctx-status` or `/devctx-summary`, devctx generates a narrative recap at the top of the dashboard:
-
 ```
-devctx ▶ ACTIVE ── my-awesome-app
-══════════════════════════════════════════════════════════════
-
-You worked on the OAuth2 PKCE implementation yesterday,
-committing the login page and flow handler on feature/auth.
-Changes were pushed and built clean, and v2.3.1 was deployed
-to production with all health checks passing.
-
-Next steps:
-  🔴 Fix race condition in webhook handler
-  🟠 Add Stripe webhook signature verification
-  🟡 Write API documentation for /payments
-
-──────────────────────────────────────────────────────────────
-...rest of dashboard...
+> /devctx-goodbye done for the day, picking up auth flow tomorrow
 ```
 
-The narrative is generated by calling **`claude-sonnet-4-20250514`** via the Anthropic API (`@anthropic-ai/sdk`). It reads your recent commits, activity log, todos, branch notes, and current focus to write a ~150 word summary. Token limits are conservative: **600 max tokens** for status/summary, **1200** for goodbye session records. Typical cost is fractions of a cent per call.
-
-**Without an API key**, you get a deterministic fallback that still lists recent work, deploy status, and prioritized next steps — just without the prose.
-
-To disable the narrative on a per-call basis, pass `narrative: false` to `devctx_status`.
-
-## How CLAUDE.md Integration Works
-
-devctx manages a section in your `CLAUDE.md` between markers:
-
-```markdown
-<!-- DEVCTX:START -->
-## Project Context (auto-updated by devctx)
-
-**Current Focus:** Building the payment integration
-**Branch:** `feature/payments`
-**Last Updated:** 2/15/2026, 3:45:00 PM
-
-### Active Todos
-- 🔄 🔴 Fix race condition in webhook handler (`feature/payments`)
-- ⬜ 🟠 Add Stripe webhook signature verification (`feature/payments`)
-<!-- DEVCTX:END -->
-```
-
-Everything outside the markers is untouched. Your existing CLAUDE.md content is preserved.
-
-### Project Context Greeting
-
-The synced CLAUDE.md section includes an embedded instruction:
-
-> **IMPORTANT:** When starting a new conversation, greet the user with a brief summary of the project context below — current focus, branch, and any active todos. Keep it to 2-3 sentences. Do not skip this greeting.
-
-This ensures Claude Code greets you with project context at the start of every conversation, even before any devctx tool is called. The greeting is driven entirely by the CLAUDE.md content — no tool call required.
-
-## File Structure (per project)
+## File structure
 
 ```
 your-project/
-├── .devctx/              # Auto-created, gitignored
-│   ├── state.json        # Project name, description, focus, active flag
-│   ├── activity.log      # JSONL activity log (append-only, also written by git hooks)
-│   ├── todos.json        # Todo items (with source tagging: manual/suggested)
-│   ├── source-todos.json # Last source code TODO scan (for diffing across sessions)
-│   ├── sessions/         # Session records from devctx_goodbye
-│   │   ├── 2026-02-14T18-30-00.md
-│   │   └── 2026-02-15T17-00-00.md
-│   └── branches/         # Per-branch notes
-│       ├── main.md
-│       ├── feature__auth.md
-│       └── fix__bug-123.md
-├── CLAUDE.md             # Updated with devctx section
+├── .devctx/                  # Auto-created, gitignored
+│   ├── state.json            # Project metadata, focus, active flag
+│   ├── activity.log          # JSONL, append-only (also written by git hooks)
+│   ├── todos.json            # Tracked todos with source tagging
+│   ├── source-todos.json     # Last source code TODO scan
+│   ├── sessions/             # Session records from goodbye
+│   └── branches/             # Per-branch notes
+├── CLAUDE.md                 # Synced with devctx section between markers
 └── ...
 ```
 
-## Tips
+## Dependencies
 
-- **Global install, project-scoped state** — one MCP server config, per-repo `.devctx/` directories
-- **Start/stop is per-project** — pausing in one repo doesn't affect others
-- **CLAUDE.md syncing** is on by default for focus and todo changes. Pass `sync_claude_md: false` to skip
-- **Branch notes** use `__` for path separators (`feature/auth` → `feature__auth.md`)
-- **Activity log** is append-only JSONL — easy to parse, never loses data. Git hooks also write to it
-- **Todos persist across branches** unless you scope them to a specific branch
-- **Re-initializing** is safe — it detects existing state and won't overwrite unless you pass `force: true`
-- **Git hooks are non-destructive** — they append to existing hooks using marker comments, never clobber
-- **Session records accumulate** in `.devctx/sessions/` and are never auto-deleted
+| Package | Purpose |
+|---------|---------|
+| `@anthropic-ai/sdk` | AI narrative generation |
+| `@modelcontextprotocol/sdk` | MCP server implementation |
+| `zod` | Input validation |
+| `fastify` | Dashboard HTTP server |
+| `react` | Dashboard frontend |
+| `vite` | Dashboard build tooling |
+
+## Free and open source
+
+devctx is MIT licensed. Clone it, use it, fork it.
+
+https://github.com/tmattoneill/devctx
