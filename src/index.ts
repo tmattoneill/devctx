@@ -8,7 +8,7 @@ import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranc
 import {
   getProjectState, saveProjectState, updateProjectFocus,
   logActivity, getRecentActivity, getLastActivityByType,
-  getTodos, addTodo, updateTodo, removeTodo,
+  getTodos, addTodo, updateTodo, removeTodo, cleanupTodos,
   getBranchNotes, saveBranchNotes, listBranchNotes,
   updateClaudeMd,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
@@ -1282,6 +1282,9 @@ server.registerTool(
       // Pause tracking
       setDevctxActive(repoRoot, false);
 
+      // Clean up todos: remove resolved, deduplicate
+      const cleanup = cleanupTodos(repoRoot);
+
       // Sync CLAUDE.md, auto-commit, and push so we leave clean
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
@@ -1309,6 +1312,9 @@ server.registerTool(
           text: [
             `👋 **Session saved.**`,
             `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
+            ...(cleanup.removed > 0 || cleanup.deduped > 0
+              ? [`🧹 Todo cleanup: ${cleanup.removed} resolved removed, ${cleanup.deduped} duplicate(s) merged.`]
+              : []),
             ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
             ...todoDiffLines,
             "",

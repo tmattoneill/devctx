@@ -256,6 +256,50 @@ export function removeTodo(repoRoot: string, id: string): boolean {
   return true;
 }
 
+const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+
+/**
+ * Clean up todos: remove done/resolved items and deduplicate by text.
+ * When duplicates exist, keeps the one with highest priority (then most recently updated).
+ * Returns { removed, deduped } counts.
+ */
+export function cleanupTodos(repoRoot: string): { removed: number; deduped: number } {
+  const todos = getTodos(repoRoot);
+  const before = todos.length;
+
+  // 1. Remove done todos
+  const active = todos.filter(t => t.status !== "done");
+  const removed = before - active.length;
+
+  // 2. Deduplicate by normalized text — keep highest priority, then most recent
+  const seen = new Map<string, number>(); // normalized text → index in deduped array
+  const deduped: typeof active = [];
+  let dupCount = 0;
+
+  for (const todo of active) {
+    const key = todo.text.trim().toLowerCase();
+    const existing = seen.get(key);
+    if (existing !== undefined) {
+      const kept = deduped[existing];
+      const keptRank = PRIORITY_RANK[kept.priority] ?? 0;
+      const newRank = PRIORITY_RANK[todo.priority] ?? 0;
+      if (newRank > keptRank || (newRank === keptRank && todo.updated > kept.updated)) {
+        deduped[existing] = todo; // replace with higher-priority/newer one
+      }
+      dupCount++;
+    } else {
+      seen.set(key, deduped.length);
+      deduped.push(todo);
+    }
+  }
+
+  if (removed > 0 || dupCount > 0) {
+    saveTodos(repoRoot, deduped);
+  }
+
+  return { removed, deduped: dupCount };
+}
+
 // --- Source TODOs ---
 
 import type { SourceTodo } from "./scanner.js";
