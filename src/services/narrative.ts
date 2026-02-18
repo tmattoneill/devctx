@@ -1,9 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { readFileSync, existsSync, readdirSync } from "fs";
-import { join } from "path";
 import type { GitCommit, GitStatus, BranchInfo } from "./git.js";
-import type { ProjectState, Todo, ActivityEntry } from "./state.js";
-import type { SourceTodo } from "./scanner.js";
+import type { ProjectState, Todo, ActivityEntry, SourceTodo } from "../shared/types.js";
+import { getLatestSessionContent } from "../shared/data.js";
 
 const MODEL = "claude-sonnet-4-20250514";
 const MAX_TOKENS = 600;
@@ -21,24 +19,6 @@ export interface NarrativeContext {
   branchNotes: string;
   lastPush: string;
   repoRoot?: string;
-}
-
-function getLatestSessionContent(repoRoot: string): string | null {
-  const sessionsDir = join(repoRoot, ".devctx", "sessions");
-  if (!existsSync(sessionsDir)) return null;
-
-  const files = readdirSync(sessionsDir)
-    .filter(f => f.endsWith(".md"))
-    .sort()
-    .reverse();
-
-  if (files.length === 0) return null;
-
-  try {
-    return readFileSync(join(sessionsDir, files[0]), "utf-8");
-  } catch {
-    return null;
-  }
 }
 
 function buildPrompt(ctx: NarrativeContext): string {

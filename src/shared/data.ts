@@ -1,47 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { createHash, randomBytes } from "crypto";
+import type { ProjectState, Todo, ActivityEntry, SourceTodo } from "./types.js";
 
 const CLAUDETTE_DIR = ".devctx";
 const ACTIVITY_LOG = "activity.log";
 const PROJECT_STATE = "state.json";
 const TODOS_FILE = "todos.json";
-
-export interface ProjectState {
-  projectName: string;
-  description: string;
-  currentFocus: string;
-  lastUpdated: string;
-  active: boolean;
-  workingSessions: WorkingSession[];
-}
-
-export interface WorkingSession {
-  started: string;
-  ended?: string;
-  summary: string;
-  branch: string;
-}
-
-export interface Todo {
-  id: string;
-  text: string;
-  status: "todo" | "in_progress" | "done" | "blocked";
-  branch?: string;
-  priority: "low" | "medium" | "high" | "critical";
-  created: string;
-  updated: string;
-  tags?: string[];
-  source?: "manual" | "suggested";
-}
-
-export interface ActivityEntry {
-  timestamp: string;
-  type: "commit" | "push" | "build" | "run" | "test" | "deploy" | "note" | "session_start" | "session_end" | "milestone" | "custom" | "branch_switch" | "merge";
-  message: string;
-  branch: string;
-  metadata?: Record<string, string>;
-}
 
 // --- Directory management ---
 
@@ -302,8 +267,6 @@ export function cleanupTodos(repoRoot: string): { removed: number; deduped: numb
 
 // --- Source TODOs ---
 
-import type { SourceTodo } from "./scanner.js";
-
 const SOURCE_TODOS_FILE = "source-todos.json";
 
 export function saveSourceTodos(repoRoot: string, todos: SourceTodo[]): void {
@@ -417,4 +380,36 @@ function builddevctxSection(branch: string, state: ProjectState, activeTodos: To
 
   lines.push("<!-- DEVCTX:END -->");
   return lines.join("\n");
+}
+
+// --- Session records ---
+
+export function getLatestSessionContent(repoRoot: string): string | null {
+  const sessionsDir = join(repoRoot, ".devctx", "sessions");
+  if (!existsSync(sessionsDir)) return null;
+
+  const files = readdirSync(sessionsDir)
+    .filter(f => f.endsWith(".md"))
+    .sort()
+    .reverse();
+
+  if (files.length === 0) return null;
+
+  try {
+    return readFileSync(join(sessionsDir, files[0]), "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+export function saveSessionRecord(repoRoot: string, content: string): string {
+  const sessionsDir = join(repoRoot, ".devctx", "sessions");
+  mkdirSync(sessionsDir, { recursive: true });
+
+  const now = new Date();
+  const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
+  const sessionFile = join(sessionsDir, `${dateStr}.md`);
+
+  writeFileSync(sessionFile, content);
+  return sessionFile;
 }
