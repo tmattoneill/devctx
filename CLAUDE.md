@@ -68,16 +68,20 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 18/02/2026, 18:30:51
+**Last Updated:** 20/02/2026, 08:14:47
 
 ### Active Todos
 - [ ] [high] Commit the modified CLAUDE.md changes (`main`)
+- [ ] [high] Stage and commit HOOKS.md to capture hooks implementation documentation (`main`)
+- [ ] [high] Push main branch to synchronize all recent changes including README rewrite and dashboard merge (`main`)
+- [ ] [high] Commit the modified CLAUDE.md changes as noted in existing todos (`main`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`feature/dashboard`)
 - [ ] [medium] Add automated tests for the shared data layer in src/shared/ (`main`)
 - [ ] [medium] Delete the merged feature/dashboard branch locally (`main`)
 - [ ] [medium] Address the TODO in src/dashboard/client/src/style.css:277 (`main`)
+- [ ] [medium] Add automated tests for the TODO scanner to prevent trailing delimiter bug regression (`main`)
 - [ ] [low] Document the todo ID generation change in README or changelog (`main`)
 
 <!-- DEVCTX:END -->
