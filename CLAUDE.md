@@ -67,14 +67,16 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
-**Branch:** `main`
-**Last Updated:** 20/02/2026, 08:14:47
+**Branch:** `feature/versioning`
+**Last Updated:** 20/02/2026, 09:04:22
 
 ### Active Todos
+- [ ] [critical] Commit all modified and untracked files for the completed versioning feature (`feature/versioning`)
 - [ ] [high] Commit the modified CLAUDE.md changes (`main`)
-- [ ] [high] Stage and commit HOOKS.md to capture hooks implementation documentation (`main`)
 - [ ] [high] Push main branch to synchronize all recent changes including README rewrite and dashboard merge (`main`)
 - [ ] [high] Commit the modified CLAUDE.md changes as noted in existing todos (`main`)
+- [ ] [high] Push feature/versioning branch to remote repository (`feature/versioning`)
+- [ ] [high] Merge feature/versioning into main branch (`feature/versioning`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`feature/dashboard`)
@@ -82,6 +84,10 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 - [ ] [medium] Delete the merged feature/dashboard branch locally (`main`)
 - [ ] [medium] Address the TODO in src/dashboard/client/src/style.css:277 (`main`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent trailing delimiter bug regression (`main`)
+- [ ] [medium] Add automated tests for the new version service functionality (`feature/versioning`)
+- [ ] [medium] Update CLAUDE.md to document the new versioning capabilities (`feature/versioning`)
 - [ ] [low] Document the todo ID generation change in README or changelog (`main`)
+- [ ] [low] Delete merged feature/dashboard branch locally as noted in todos (`feature/versioning`)
+- [ ] [low] Address remaining TODO item in src/dashboard/client/src/style.css:277 (`feature/versioning`)
 
 <!-- DEVCTX:END -->
