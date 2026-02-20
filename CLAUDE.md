@@ -68,13 +68,16 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 20/02/2026, 17:53:37
+**Last Updated:** 20/02/2026, 18:04:17
 
 ### Active Todos
 - [ ] [high] Add automated tests for the new semantic versioning tool and version service (`main`)
 - [ ] [high] Complete and commit the CLAUDE.md documentation update (`main`)
 - [ ] [high] Add automated tests for the TODO scanner to prevent regression (`main`)
 - [ ] [high] Write comprehensive tests for the semantic versioning tool (`main`)
+- [ ] [high] Write comprehensive automated tests for the TODO scanner to prevent regression (`main`)
+- [ ] [high] Add automated tests for the semantic versioning tool and version service (`main`)
+- [ ] [high] Complete the CLAUDE.md documentation update to cover versioning capabilities (`main`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`feature/dashboard`)
@@ -83,7 +86,11 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 - [ ] [medium] Update CLAUDE.md to document versioning capabilities (`main`)
 - [ ] [medium] Add .claude/ directory to version control (`main`)
 - [ ] [medium] Address CSS todo item in dashboard client styles (`main`)
+- [ ] [medium] Consolidate and clean up duplicate todo entries in the project (`main`)
+- [ ] [medium] Add the .claude/ directory to version control (`main`)
+- [ ] [medium] Address the CSS todo item in src/dashboard/client/src/style.css:277 (`main`)
 - [ ] [low] Document the todo ID generation change in README or changelog (`main`)
 - [ ] [low] Document todo ID generation changes in README or changelog (`main`)
+- [ ] [low] Document the todo ID generation changes in README or changelog (`main`)
 
 <!-- DEVCTX:END -->
