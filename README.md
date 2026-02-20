@@ -128,41 +128,33 @@ npm install
 npm run build
 ```
 
-Add to your global Claude Code settings (`~/.claude/settings.json`):
+Register with Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "devctx": {
-      "command": "node",
-      "args": ["/absolute/path/to/devctx/dist/index.js"],
-      "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-..."
-      }
-    }
-  }
-}
+```bash
+claude mcp add devctx node /absolute/path/to/devctx/dist/index.js
 ```
 
-The API key enables AI narrative summaries. Without it, everything works — the summaries just use a deterministic fallback.
+To enable AI narrative summaries, add your API key:
+
+```bash
+claude mcp add devctx node /absolute/path/to/devctx/dist/index.js -e ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Verify it's connected:
+
+```bash
+claude mcp list
+```
+
+Without the API key everything works — the summaries just use a deterministic fallback.
 
 ### Permissions
 
-devctx reads and writes to `.devctx/` (gitignored) and `CLAUDE.md`. Allow all tools at the system level to avoid per-call prompts:
+Allow all devctx tools at the system level to avoid per-call prompts:
 
 ```bash
 /permissions
 # Add: mcp__devctx
-```
-
-Or in `~/.claude/settings.json`:
-
-```json
-{
-  "permissions": {
-    "allow": ["mcp__devctx"]
-  }
-}
 ```
 
 devctx never modifies source code, runs arbitrary shell commands, or accesses the network (except the optional AI narrative).
