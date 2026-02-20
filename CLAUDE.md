@@ -68,32 +68,22 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 20/02/2026, 15:50:20
+**Last Updated:** 20/02/2026, 17:53:37
 
 ### Active Todos
-- [ ] [critical] Commit all modified and untracked files for the completed versioning feature (`feature/versioning`)
-- [ ] [high] Commit the modified CLAUDE.md changes (`main`)
-- [ ] [high] Push main branch to synchronize all recent changes including README rewrite and dashboard merge (`main`)
-- [ ] [high] Commit the modified CLAUDE.md changes as noted in existing todos (`main`)
-- [ ] [high] Push feature/versioning branch to remote repository (`feature/versioning`)
-- [ ] [high] Merge feature/versioning into main branch (`feature/versioning`)
-- [ ] [high] Run todo cleanup to remove completed and duplicate items from the 18-item backlog (`main`)
 - [ ] [high] Add automated tests for the new semantic versioning tool and version service (`main`)
+- [ ] [high] Complete and commit the CLAUDE.md documentation update (`main`)
+- [ ] [high] Add automated tests for the TODO scanner to prevent regression (`main`)
+- [ ] [high] Write comprehensive tests for the semantic versioning tool (`main`)
 - [ ] [medium] Add automated tests for the TODO scanner to prevent regression of trailing delimiter bug (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`feature/dashboard`)
 - [ ] [medium] Add automated tests for the shared data layer in src/shared/ (`main`)
-- [ ] [medium] Delete the merged feature/dashboard branch locally (`main`)
-- [ ] [medium] Address the TODO in src/dashboard/client/src/style.css:277 (`main`)
-- [ ] [medium] Add automated tests for the TODO scanner to prevent trailing delimiter bug regression (`main`)
-- [ ] [medium] Add automated tests for the new version service functionality (`feature/versioning`)
-- [ ] [medium] Update CLAUDE.md to document the new versioning capabilities (`feature/versioning`)
 - [ ] [medium] Update CLAUDE.md to document the new versioning capabilities and tools (`main`)
-- [ ] [medium] Address the remaining TODO in src/dashboard/client/src/style.css:277 (`main`)
+- [ ] [medium] Update CLAUDE.md to document versioning capabilities (`main`)
+- [ ] [medium] Add .claude/ directory to version control (`main`)
+- [ ] [medium] Address CSS todo item in dashboard client styles (`main`)
 - [ ] [low] Document the todo ID generation change in README or changelog (`main`)
-- [ ] [low] Delete merged feature/dashboard branch locally as noted in todos (`feature/versioning`)
-- [ ] [low] Address remaining TODO item in src/dashboard/client/src/style.css:277 (`feature/versioning`)
-- [ ] [low] Delete the merged feature/dashboard branch locally as noted in todos (`main`)
-- [ ] [low] Document the recent todo ID generation changes in README or changelog (`main`)
+- [ ] [low] Document todo ID generation changes in README or changelog (`main`)
 
 <!-- DEVCTX:END -->
