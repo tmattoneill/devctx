@@ -8,7 +8,7 @@ import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranc
 import {
   getProjectState, saveProjectState, updateProjectFocus,
   logActivity, getRecentActivity, getLastActivityByType,
-  getTodos, addTodo, updateTodo, removeTodo, cleanupTodos,
+  getTodos, addTodo, updateTodo, removeTodo, cleanupTodos, normalizeForComparison, isSimilarToAny,
   getBranchNotes, saveBranchNotes, listBranchNotes,
   updateClaudeMd,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
@@ -1409,10 +1409,19 @@ server.registerTool(
 
       const sessionFile = saveSessionRecord(repoRoot, sessionRecord);
 
-      // Add suggested todos
+      // Add suggested todos — but only ones that don't overlap with existing todos
       const branch = getCurrentBranch(repoRoot);
+      const existingTodos = getTodos(repoRoot).filter(t => t.status !== "done");
+      const existingTexts = existingTodos.map(t => normalizeForComparison(t.text));
+      let skippedDupes = 0;
       for (const t of suggestedTodos) {
+        if (isSimilarToAny(t.text, existingTexts)) {
+          skippedDupes++;
+          continue;
+        }
         addTodo(repoRoot, t.text, t.priority as "low" | "medium" | "high" | "critical", branch, undefined, "suggested");
+        // Add to existing list so subsequent suggestions are checked against earlier ones too
+        existingTexts.push(normalizeForComparison(t.text));
       }
 
       // Log session end
@@ -1468,7 +1477,7 @@ server.registerTool(
           type: "text",
           text: [
             `👋 **Session saved.**`,
-            `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length} suggested todo(s) added.`,
+            `${commitCount} commit(s) across ${branchSet.size} branch(es). ${suggestedTodos.length - skippedDupes} suggested todo(s) added${skippedDupes > 0 ? ` (${skippedDupes} duplicate(s) skipped)` : ""}.`,
             ...(cleanup.removed > 0 || cleanup.deduped > 0
               ? [`🧹 Todo cleanup: ${cleanup.removed} resolved removed, ${cleanup.deduped} duplicate(s) merged.`]
               : []),

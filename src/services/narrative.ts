@@ -253,6 +253,8 @@ Infer from uncommitted changes, WIP branches, partial implementations, failing t
 ## Suggested next steps
 Write 3-7 actionable items based on what was done. If commits were made but not pushed, suggest pushing. If tests were added but coverage is partial, suggest completing coverage. If a branch was started but not merged, suggest completing or merging it. If the user left a parting note, incorporate that context.
 
+CRITICAL: Do NOT suggest items that overlap with or duplicate the existing todos listed in the context. Check the "Existing todos" section carefully — if a todo already covers the topic (even with different wording), do NOT include it. Only suggest genuinely NEW action items that are not already tracked.
+
 After your narrative, output the suggested next steps as a parseable JSON array wrapped in a \`\`\`json code block. Each item should have "text" (string) and "priority" (one of: "low", "medium", "high", "critical"). Example:
 
 \`\`\`json

@@ -223,8 +223,72 @@ export function removeTodo(repoRoot: string, id: string): boolean {
 
 const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
+// --- Fuzzy todo similarity ---
+
+/** Stop words to strip when comparing todo texts */
+const STOP_WORDS = new Set([
+  "a", "an", "the", "and", "or", "to", "for", "of", "in", "on", "is", "it",
+  "add", "write", "create", "implement", "complete", "update", "new",
+  "comprehensive", "automated", "prevent", "regression", "ensure",
+  "cover", "covering", "address", "item",
+]);
+
+/** Common suffixes to strip for pseudo-stemming */
+function pseudoStem(word: string): string {
+  return word
+    .replace(/ation$/, "")   // documentation → document
+    .replace(/ting$/, "")    // testing → test (but keep 4+ char root)
+    .replace(/ment$/, "")    // improvement → improve
+    .replace(/ies$/, "y")    // capabilities → capabilit → keep as-is since root is long enough
+    .replace(/ing$/, "")     // versioning → version
+    .replace(/ed$/, "")      // tracked → track
+    .replace(/ly$/, "")      // manually → manual
+    .replace(/s$/, "");      // tests → test
+}
+
 /**
- * Clean up todos: remove done/resolved items and deduplicate by text.
+ * Normalize text for fuzzy comparison: lowercase, split on non-alpha boundaries
+ * (including path separators), remove stop words, pseudo-stem, sort remaining words.
+ */
+export function normalizeForComparison(text: string): string {
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")  // split on punctuation/paths into separate words
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w))
+    .map(pseudoStem)
+    .filter(w => w.length > 2);  // filter again after stemming
+  return [...new Set(words)].sort().join(" ");
+}
+
+/**
+ * Check if two normalized strings are similar enough to be duplicates.
+ * Uses Jaccard similarity on word sets — threshold of 0.5 means
+ * at least half the words overlap.
+ */
+function areSimilar(normA: string, normB: string, threshold = 0.5): boolean {
+  if (normA === normB) return true;
+  const setA = new Set(normA.split(" "));
+  const setB = new Set(normB.split(" "));
+  if (setA.size === 0 || setB.size === 0) return false;
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+  const union = new Set([...setA, ...setB]).size;
+  return intersection / union >= threshold;
+}
+
+/**
+ * Check if a todo text is similar to any in a list of normalized texts.
+ */
+export function isSimilarToAny(text: string, normalizedExisting: string[]): boolean {
+  const norm = normalizeForComparison(text);
+  return normalizedExisting.some(existing => areSimilar(norm, existing));
+}
+
+/**
+ * Clean up todos: remove done/resolved items and deduplicate by text similarity.
  * When duplicates exist, keeps the one with highest priority (then most recently updated).
  * Returns { removed, deduped } counts.
  */
@@ -236,24 +300,26 @@ export function cleanupTodos(repoRoot: string): { removed: number; deduped: numb
   const active = todos.filter(t => t.status !== "done");
   const removed = before - active.length;
 
-  // 2. Deduplicate by normalized text — keep highest priority, then most recent
-  const seen = new Map<string, number>(); // normalized text → index in deduped array
+  // 2. Deduplicate by fuzzy text similarity — keep highest priority, then most recent
+  const keptNorms: string[] = []; // normalized texts of kept todos
   const deduped: typeof active = [];
   let dupCount = 0;
 
   for (const todo of active) {
-    const key = todo.text.trim().toLowerCase();
-    const existing = seen.get(key);
-    if (existing !== undefined) {
-      const kept = deduped[existing];
+    const norm = normalizeForComparison(todo.text);
+    // Find if this is similar to an already-kept todo
+    const existingIdx = keptNorms.findIndex(kept => areSimilar(norm, kept));
+    if (existingIdx !== -1) {
+      const kept = deduped[existingIdx];
       const keptRank = PRIORITY_RANK[kept.priority] ?? 0;
       const newRank = PRIORITY_RANK[todo.priority] ?? 0;
       if (newRank > keptRank || (newRank === keptRank && todo.updated > kept.updated)) {
-        deduped[existing] = todo; // replace with higher-priority/newer one
+        deduped[existingIdx] = todo;
+        keptNorms[existingIdx] = norm;
       }
       dupCount++;
     } else {
-      seen.set(key, deduped.length);
+      keptNorms.push(norm);
       deduped.push(todo);
     }
   }
