@@ -318,3 +318,50 @@ export function gitStash(cwd: string, action?: string, message?: string): string
   if (action === "drop") return execGitOp("git stash drop", cwd);
   throw new Error(`Unknown stash action: ${action}`);
 }
+
+// ── Version tag operations ──────────────────────────────────
+
+interface SemverParts {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+function parseSemver(tag: string): SemverParts | null {
+  const match = tag.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return null;
+  return { major: parseInt(match[1], 10), minor: parseInt(match[2], 10), patch: parseInt(match[3], 10) };
+}
+
+export function getVersionTags(cwd: string): string[] {
+  const raw = exec("git tag -l", cwd);
+  if (!raw) return [];
+  const tags = raw.split("\n").filter(Boolean).filter(t => /^v\d+\.\d+\.\d+$/.test(t));
+  // Sort by semver descending
+  return tags.sort((a, b) => {
+    const pa = parseSemver(a)!;
+    const pb = parseSemver(b)!;
+    if (pa.major !== pb.major) return pb.major - pa.major;
+    if (pa.minor !== pb.minor) return pb.minor - pa.minor;
+    return pb.patch - pa.patch;
+  });
+}
+
+export function getCommitsSinceTag(cwd: string, tag: string): GitCommit[] {
+  const currentBranch = getCurrentBranch(cwd);
+  const format = "%H|%h|%s|%an|%ai";
+  const raw = exec(`git log ${tag}..HEAD --format="${format}"`, cwd);
+  if (!raw) return [];
+  return raw.split("\n").filter(Boolean).map((line) => {
+    const [hash, shortHash, subject, author, date] = line.split("|");
+    return { hash, shortHash, subject, author, date, branch: currentBranch };
+  });
+}
+
+export function gitTag(cwd: string, tagName: string, message: string): string {
+  return execGitOp(`git tag -a "${tagName}" -m "${escapeMsg(message)}"`, cwd);
+}
+
+export function gitPushTag(cwd: string, tagName: string, remote?: string): string {
+  return execGitOp(`git push ${remote || "origin"} "${tagName}"`, cwd, 30000);
+}

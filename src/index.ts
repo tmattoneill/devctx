@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit, commitFiles, gitCommit, gitPush, gitPull, gitCheckout, gitMerge, gitStash } from "./services/git.js";
+import { getRepoRoot, getCurrentBranch, getRecentCommits, getGitStatus, getBranches, getLastPush, getRemoteUrl, getAllBranches, getStashCount, getLastCommitAge, hasGitRepo, initGitRepo, createInitialCommit, commitFiles, gitCommit, gitPush, gitPull, gitCheckout, gitMerge, gitStash, getVersionTags, getCommitsSinceTag, gitTag, gitPushTag } from "./services/git.js";
 import {
   getProjectState, saveProjectState, updateProjectFocus,
   logActivity, getRecentActivity, getLastActivityByType,
@@ -18,6 +18,7 @@ import {
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
 import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
+import { getCurrentVersion, bumpVersion, generateVersionSuggestion, fallbackVersionSuggestion } from "./services/version.js";
 import { scanProject, formatScanReport, generateAutoDescription, scanSourceTodos, formatSourceTodos } from "./services/scanner.js";
 import { installHooks } from "./services/hooks.js";
 import { readFileSync, existsSync } from "fs";
@@ -152,8 +153,10 @@ server.registerTool(
     const activity = getRecentActivity(repoRoot, 8);
     const branchNotes = getBranchNotes(repoRoot, status.branch);
     const lastPush = getLastPush(repoRoot);
+    const versionTags = getVersionTags(repoRoot);
+    const currentVersion = getCurrentVersion(versionTags);
 
-    const output = formatWhereAmI(repoRoot, status, state, commits, activeTodos, activity, branchNotes, lastPush);
+    const output = formatWhereAmI(repoRoot, status, state, commits, activeTodos, activity, branchNotes, lastPush, currentVersion !== "none" ? currentVersion : undefined);
 
     return withGreeting({ content: [{ type: "text", text: output }] });
   }
@@ -226,7 +229,7 @@ server.registerTool(
 
 Always log immediately after the action completes. This data powers the VITALS dashboard.`,
     inputSchema: {
-      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge"]).describe("Type of activity — use build/run/test for dev commands, commit/push/deploy for git operations"),
+      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge", "version"]).describe("Type of activity — use build/run/test for dev commands, commit/push/deploy for git operations"),
       message: z.string().min(1).max(1000).describe("Description of the activity"),
       metadata: z.record(z.string()).optional().describe("Optional key-value metadata"),
     },
@@ -268,7 +271,7 @@ server.registerTool(
     description: `View the activity log. Shows timestamped entries of commits, pushes, builds, deploys, notes, and milestones. Optionally filter by activity type.`,
     inputSchema: {
       count: z.number().int().min(1).max(100).default(20).describe("Number of entries to show"),
-      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge"]).optional().describe("Filter by activity type"),
+      type: z.enum(["commit", "push", "build", "run", "test", "deploy", "note", "milestone", "custom", "branch_switch", "merge", "version"]).optional().describe("Filter by activity type"),
     },
     annotations: {
       readOnlyHint: true,
@@ -873,6 +876,9 @@ server.registerTool(
     const recentActivity = getRecentActivity(repoRoot, 15);
     const branchNotes = getBranchNotes(repoRoot, status.branch);
 
+    const versionTags = getVersionTags(repoRoot);
+    const currentVersion = getCurrentVersion(versionTags);
+
     let narrativeText: string | undefined;
     if (includeNarrative) {
       narrativeText = await generateNarrative({
@@ -899,6 +905,7 @@ server.registerTool(
       stashCount,
       lastCommitAge,
       narrative: narrativeText,
+      currentVersion: currentVersion !== "none" ? currentVersion : undefined,
     });
 
     return withGreeting({
@@ -1144,6 +1151,147 @@ Supported commands: commit, push, pull, checkout, merge, stash, status.`,
 );
 
 // ============================================================
+// TOOL: devctx_version
+// ============================================================
+server.registerTool(
+  "devctx_version",
+  {
+    title: "Semantic Versioning",
+    description: `Create a semantic version tag for the project. Analyzes commits since the last version tag using AI (or deterministic fallback) to suggest major/minor/patch bump. Creates an annotated git tag and optionally pushes it.
+
+Use this when you want to version a release. Use dry_run to preview without tagging. Use override_level to force a specific bump level.
+
+- First version starts at v0.1.0
+- PATCH: bug fixes, docs, refactoring
+- MINOR: new features, enhancements
+- MAJOR: breaking changes, API removals`,
+    inputSchema: {
+      override_level: z.enum(["major", "minor", "patch"]).optional().describe("Force a specific bump level instead of AI suggestion"),
+      dry_run: z.boolean().default(false).describe("Preview the version suggestion without creating a tag"),
+      remote: z.string().optional().describe("Remote to push tags to (defaults to origin)"),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async ({ override_level, dry_run, remote }) => {
+    const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
+    const paused = guardActive(repoRoot);
+    if (paused) return paused;
+    const notInit = guardInitialized(repoRoot);
+    if (notInit) return notInit;
+
+    try {
+      const state = getProjectState(repoRoot);
+      const branch = getCurrentBranch(repoRoot);
+      const versionTags = getVersionTags(repoRoot);
+      const currentVersion = getCurrentVersion(versionTags);
+
+      // Get commits since last tag
+      const commits = currentVersion !== "none"
+        ? getCommitsSinceTag(repoRoot, currentVersion)
+        : getRecentCommits(repoRoot, 50);
+
+      if (commits.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `📦 **No commits to version.**\n\nCurrent version: \`${currentVersion}\`\nNo new commits since last tag. Make some changes first!`,
+          }],
+        };
+      }
+
+      // Get suggestion (AI or fallback)
+      let suggestion;
+      if (override_level) {
+        const nextVersion = bumpVersion(currentVersion, override_level);
+        suggestion = {
+          level: override_level,
+          reason: `Manual override: ${override_level} bump`,
+          currentVersion,
+          nextVersion,
+        };
+      } else {
+        suggestion = await generateVersionSuggestion(commits, currentVersion, state.projectName);
+      }
+
+      // Dry run — just show the suggestion
+      if (dry_run) {
+        const commitList = commits.slice(0, 10).map(c => `  - \`${c.shortHash}\` ${c.subject}`).join("\n");
+        const moreText = commits.length > 10 ? `\n  … +${commits.length - 10} more` : "";
+        return {
+          content: [{
+            type: "text",
+            text: [
+              `📦 **Version Preview** (dry run)`,
+              "",
+              `Current: \`${currentVersion}\``,
+              `Suggested: \`${suggestion.nextVersion}\` (${suggestion.level.toUpperCase()})`,
+              `Reason: ${suggestion.reason}`,
+              "",
+              `**${commits.length} commit(s) since last tag:**`,
+              commitList + moreText,
+              "",
+              `Run \`devctx_version\` without \`dry_run\` to apply.`,
+            ].join("\n"),
+          }],
+        };
+      }
+
+      // Create annotated tag
+      const tagMessage = `${suggestion.nextVersion}: ${suggestion.reason}`;
+      gitTag(repoRoot, suggestion.nextVersion, tagMessage);
+
+      // Push tags
+      let pushResult = "";
+      try {
+        gitPushTag(repoRoot, suggestion.nextVersion, remote);
+        pushResult = `Pushed to ${remote || "origin"}.`;
+      } catch {
+        pushResult = "Tag created locally (push failed or no remote).";
+      }
+
+      // Log activity
+      logActivity(repoRoot, {
+        type: "version",
+        message: `Tagged ${suggestion.nextVersion} (${suggestion.level}): ${suggestion.reason}`,
+        branch,
+        metadata: {
+          from_version: currentVersion,
+          to_version: suggestion.nextVersion,
+          level: suggestion.level,
+          commits: String(commits.length),
+        },
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: [
+            `🏷️ **${suggestion.nextVersion}** tagged!`,
+            "",
+            `${currentVersion === "none" ? "First version" : `${currentVersion} → ${suggestion.nextVersion}`} (${suggestion.level.toUpperCase()})`,
+            `Reason: ${suggestion.reason}`,
+            `Commits: ${commits.length}`,
+            pushResult,
+          ].join("\n"),
+        }],
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text", text: `❌ Version failed: ${errMsg}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================
 // TOOL: devctx_goodbye
 // ============================================================
 server.registerTool(
@@ -1292,6 +1440,20 @@ server.registerTool(
       // Count branches worked on
       const branchSet = new Set(recentActivity.map(a => a.branch));
 
+      // Version suggestion (best-effort, never blocks goodbye)
+      let versionHint = "";
+      try {
+        const versionTags = getVersionTags(repoRoot);
+        const currentVer = getCurrentVersion(versionTags);
+        const verCommits = currentVer !== "none"
+          ? getCommitsSinceTag(repoRoot, currentVer)
+          : recentCommits;
+        if (verCommits.length > 0) {
+          const suggestion = await fallbackVersionSuggestion(verCommits, currentVer);
+          versionHint = `\n📦 Version suggestion: bump to \`${suggestion.nextVersion}\` (${suggestion.level.toUpperCase()}) — ${suggestion.reason}. Run \`devctx_version\` to apply.`;
+        }
+      } catch { /* best effort — never block goodbye */ }
+
       // Build source TODO diff summary
       const todoDiffLines: string[] = [];
       if (addedSourceTodos.length > 0 || resolvedSourceTodos.length > 0) {
@@ -1312,6 +1474,7 @@ server.registerTool(
               : []),
             ...(sessionDuration ? [`Duration: ${sessionDuration}.`] : []),
             ...todoDiffLines,
+            ...(versionHint ? [versionHint] : []),
             "",
             `Session record: \`${sessionFile.substring(repoRoot.length + 1)}\``,
             "",
@@ -1368,6 +1531,7 @@ server.registerTool(
       "| `/devctx-todos` | List todos. Also handles adding, updating, or removing if you say so. |",
       "| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash. |",
       "| `/devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
+      "| `/devctx-version` | Semantic versioning — AI-suggested bump level, creates annotated git tags, pushes to remote. |",
       "| `/devctx-start` | Resume tracking (happens automatically on new sessions). |",
       "| `/devctx-stop` | Pause tracking manually. Read-only tools still work. |",
       "| `/devctx-help` | This help screen. |",
