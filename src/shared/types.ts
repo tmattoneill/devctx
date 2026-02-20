@@ -28,7 +28,7 @@ export interface Todo {
 
 export interface ActivityEntry {
   timestamp: string;
-  type: "commit" | "push" | "build" | "run" | "test" | "deploy" | "note" | "session_start" | "session_end" | "milestone" | "custom" | "branch_switch" | "merge";
+  type: "commit" | "push" | "build" | "run" | "test" | "deploy" | "note" | "session_start" | "session_end" | "milestone" | "custom" | "branch_switch" | "merge" | "version";
   message: string;
   branch: string;
   metadata?: Record<string, string>;

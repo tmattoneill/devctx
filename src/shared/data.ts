@@ -136,7 +136,7 @@ export function getLastActivityByType(repoRoot: string): Record<string, Activity
   const dir = join(repoRoot, CLAUDETTE_DIR);
   const logFile = join(dir, ACTIVITY_LOG);
 
-  const types = ["commit", "push", "build", "run", "test", "deploy", "session_start", "session_end", "milestone", "note", "branch_switch", "merge"];
+  const types = ["commit", "push", "build", "run", "test", "deploy", "session_start", "session_end", "milestone", "note", "branch_switch", "merge", "version"];
   const result: Record<string, ActivityEntry | null> = {};
   for (const t of types) result[t] = null;
 

@@ -9,7 +9,8 @@ export function formatWhereAmI(
   activeTodos: Todo[],
   recentActivity: ActivityEntry[],
   branchNotes: string,
-  lastPush: string
+  lastPush: string,
+  currentVersion?: string
 ): string {
   const lines: string[] = [];
 
@@ -26,7 +27,7 @@ export function formatWhereAmI(
   }
 
   // Git status
-  lines.push(`## 🌿 Branch: \`${status.branch}\``);
+  lines.push(`## 🌿 Branch: \`${status.branch}\`${currentVersion ? ` — ${currentVersion}` : ""}`);
   if (status.isClean) {
     lines.push("Working tree is clean.");
   } else {

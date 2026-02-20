@@ -72,10 +72,11 @@ export interface DashboardData {
   stashCount: number;
   lastCommitAge: string;
   narrative?: string;
+  currentVersion?: string;
 }
 
 export function buildDashboard(data: DashboardData): string {
-  const { state, status, branches, todos, vitals, lastPush, remote, stashCount, lastCommitAge, narrative } = data;
+  const { state, status, branches, todos, vitals, lastPush, remote, stashCount, lastCommitAge, narrative, currentVersion } = data;
   const lines: string[] = [];
 
   // ── HEADER ──
@@ -236,6 +237,9 @@ export function buildDashboard(data: DashboardData): string {
   vitalRow("Last Push", vitals["push"]);
   vitalRow("Last Deploy", vitals["deploy"]);
   vitalRow("Session", vitals["session_start"], "—", "no session logged");
+  if (currentVersion) {
+    vitalRow("Version", vitals["version"], "—", currentVersion);
+  }
 
   lines.push(tableBorder(vitalsCols, "└", "┴", "┘"));
 
