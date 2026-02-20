@@ -99,10 +99,10 @@ Write tools respect the active/paused state. Read tools always work.
 
 ## Slash commands
 
-Copy to your global commands directory:
+Slash commands are installed automatically by `util/install.sh` as symlinks, so updates propagate on `git pull`. To install manually:
 
 ```bash
-cp slash-commands/*.md ~/.claude/commands/
+ln -sf "$PWD/slash-commands"/*.md ~/.claude/commands/
 ```
 
 | Command | Purpose |
@@ -121,24 +121,62 @@ cp slash-commands/*.md ~/.claude/commands/
 
 ## Installation
 
+### Quick install (recommended)
+
+```bash
+git clone https://github.com/tmattoneill/devctx.git
+cd devctx
+bash util/install.sh
+```
+
+The installer handles everything in one command:
+
+1. Installs dependencies and builds the project (`npm install && npm run build:all`)
+2. Prompts for MCP registration scope (system-wide or project-only)
+3. Optionally configures your Anthropic API key for AI narrative summaries
+4. Registers the MCP server with `claude mcp add`
+5. Symlinks all 12 slash commands to `~/.claude/commands/`
+6. Adds `mcp__devctx` to your Claude Code permissions
+
+If Node.js isn't installed, the script detects your platform (macOS/Ubuntu/Fedora/Arch) and offers to install it.
+
+**Non-interactive mode** for scripted installs:
+
+```bash
+bash util/install.sh -s user --no-api-key        # System-wide, no API key
+bash util/install.sh -s project --api-key sk-ant-...  # Project-scoped with key
+```
+
+Run `bash util/install.sh --help` for all options. The script is idempotent — safe to re-run after `git pull`.
+
+### Manual installation
+
 ```bash
 git clone https://github.com/tmattoneill/devctx.git
 cd devctx
 npm install
-npm run build
+npm run build:all
 ```
 
 Register with Claude Code:
 
 ```bash
-claude mcp add devctx node /absolute/path/to/devctx/dist/index.js
+claude mcp add -s user devctx -- node /absolute/path/to/devctx/dist/index.js
 ```
 
 To enable AI narrative summaries, add your API key:
 
 ```bash
-claude mcp add devctx node /absolute/path/to/devctx/dist/index.js -e ANTHROPIC_API_KEY=sk-ant-...
+claude mcp add -s user devctx -e ANTHROPIC_API_KEY=sk-ant-... -- node /absolute/path/to/devctx/dist/index.js
 ```
+
+Install slash commands and permissions:
+
+```bash
+ln -sf "$PWD/slash-commands"/*.md ~/.claude/commands/
+```
+
+Add `mcp__devctx` to the `permissions.allow` array in `~/.claude/settings.json` to avoid per-call prompts.
 
 Verify it's connected:
 
@@ -146,18 +184,7 @@ Verify it's connected:
 claude mcp list
 ```
 
-Without the API key everything works — the summaries just use a deterministic fallback.
-
-### Permissions
-
-Allow all devctx tools at the system level to avoid per-call prompts:
-
-```bash
-/permissions
-# Add: mcp__devctx
-```
-
-devctx never modifies source code, runs arbitrary shell commands, or accesses the network (except the optional AI narrative).
+Without the API key everything works — the summaries just use a deterministic fallback. devctx never modifies source code, runs arbitrary shell commands, or accesses the network (except the optional AI narrative).
 
 ## Getting started
 
