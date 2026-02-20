@@ -1576,7 +1576,9 @@ process.on("unhandledRejection", (reason) => {
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("devctx MCP server running (stdio)");
+  if (process.argv.includes("--verbose")) {
+    console.error("devctx MCP server running (stdio)");
+  }
 }
 
 main().catch((error) => {
