@@ -1590,17 +1590,23 @@ server.registerTool(
 // Start server
 // ============================================================
 
-// Prevent unhandled rejections from crashing the server process
-// Prevent unhandled rejections from crashing — but don't write to stderr
-// as Claude Code interprets stderr output as MCP server failure
+// MCP servers communicate over stdio. Any write to stderr causes Claude Code
+// to flag the server as "failed". Suppress all possible stderr output:
+// 1. Silence console.warn/error (third-party libs like @anthropic-ai/sdk use console.warn)
+// 2. Catch uncaught exceptions and unhandled rejections
+// 3. Handle SIGTERM/SIGINT for clean shutdown (no non-zero exit code)
+if (!process.argv.includes("--verbose")) {
+  console.error = () => {};
+  console.warn = () => {};
+}
 process.on("unhandledRejection", () => {});
+process.on("uncaughtException", () => {});
+process.on("SIGTERM", () => process.exit(0));
+process.on("SIGINT", () => process.exit(0));
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  if (process.argv.includes("--verbose")) {
-    console.error("devctx MCP server running (stdio)");
-  }
 }
 
 main().catch(() => {
