@@ -153,9 +153,8 @@ export async function generateNarrative(ctx: NarrativeContext): Promise<string> 
     }
 
     return generateFallbackNarrative(ctx);
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`Narrative generation failed: ${errMsg}`);
+  } catch {
+    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
     return generateFallbackNarrative(ctx);
   }
 }
@@ -441,9 +440,8 @@ export async function generateGoodbyeSummary(ctx: GoodbyeContext): Promise<Goodb
     }
 
     return generateFallbackGoodbye(ctx);
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`Goodbye summary generation failed: ${errMsg}`);
+  } catch {
+    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
     return generateFallbackGoodbye(ctx);
   }
 }

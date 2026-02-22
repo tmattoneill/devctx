@@ -1515,7 +1515,7 @@ server.registerTool(
       };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.error(`devctx_goodbye error: ${errMsg}`);
+      // Don't write to stderr — it causes Claude Code to flag the MCP server as failed
       // Still try to log and pause even on error
       try {
         const branch = getCurrentBranch(repoRoot);
@@ -1591,9 +1591,9 @@ server.registerTool(
 // ============================================================
 
 // Prevent unhandled rejections from crashing the server process
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection in devctx MCP server:", reason);
-});
+// Prevent unhandled rejections from crashing — but don't write to stderr
+// as Claude Code interprets stderr output as MCP server failure
+process.on("unhandledRejection", () => {});
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
@@ -1603,7 +1603,6 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error);
+main().catch(() => {
   process.exit(1);
 });

@@ -100,9 +100,8 @@ export async function generateVersionSuggestion(
     }
 
     return fallbackVersionSuggestion(commits, currentVersion);
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error(`Version suggestion AI failed: ${errMsg}`);
+  } catch {
+    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
     return fallbackVersionSuggestion(commits, currentVersion);
   }
 }
