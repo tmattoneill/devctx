@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "bin": {
     "devctx-mcp": "dist/index.js",
-    "devctx-dash": "dist/dashboard/cli.js"
+    "devctx-dash": "dist/dashboard/cli.js",
+    "devctx-statusline": "statusline/devctx-statusline.sh"
   },
   "scripts": {
     "build": "tsc",
@@ -15,7 +16,9 @@
     "start": "node dist/index.js",
     "dashboard": "node dist/dashboard/cli.js",
     "dashboard:dev": "node dist/dashboard/cli.js --dev",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -32,6 +35,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
     "typescript": "^5.8.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.1.4"
   }
 }
