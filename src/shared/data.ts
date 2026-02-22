@@ -378,6 +378,44 @@ export function listBranchNotes(repoRoot: string): string[] {
     .map((f) => f.replace(/__/g, "/").replace(/\.md$/, ""));
 }
 
+// --- Status line cache ---
+
+export interface StatusLineCache {
+  projectName: string;
+  currentFocus: string;
+  active: boolean;
+  branch: string;
+  todoCount: number;
+  highPriorityCount: number;
+  lastCommit: string | null;
+  lastPush: string | null;
+  updatedAt: string;
+}
+
+export function updateStatusLineCache(repoRoot: string, branch: string): void {
+  const dir = ensuredevctxDir(repoRoot);
+  const state = getProjectState(repoRoot);
+  const todos = getTodos(repoRoot);
+  const vitals = getLastActivityByType(repoRoot);
+
+  const activeTodos = todos.filter(t => t.status !== "done");
+  const highPriority = activeTodos.filter(t => t.priority === "high" || t.priority === "critical");
+
+  const cache: StatusLineCache = {
+    projectName: state.projectName,
+    currentFocus: state.currentFocus ? state.currentFocus.slice(0, 60) : "",
+    active: state.active !== false,
+    branch,
+    todoCount: activeTodos.length,
+    highPriorityCount: highPriority.length,
+    lastCommit: vitals.commit?.timestamp ?? null,
+    lastPush: vitals.push?.timestamp ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeFileSync(join(dir, "statusline.json"), JSON.stringify(cache, null, 2));
+}
+
 // --- CLAUDE.md management ---
 
 export function updateClaudeMd(repoRoot: string, branch: string, state: ProjectState, todos: Todo[]): void {

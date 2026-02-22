@@ -34,6 +34,7 @@ SCOPE=""
 API_KEY=""
 NO_API_KEY=false
 SKIP_REGISTRATION=false
+STATUSLINE="prompt"
 VERBOSE=false
 
 usage() {
@@ -45,6 +46,8 @@ Options:
   --api-key KEY           Anthropic API key for AI narrative summaries
   --no-api-key            Skip API key prompt
   --skip-registration     Skip MCP server registration
+  --statusline            Enable status line (skip interactive prompt)
+  --no-statusline         Skip status line setup
   --verbose               Show full command output
   --help                  Show this help message
 
@@ -81,6 +84,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-registration)
       SKIP_REGISTRATION=true
+      shift
+      ;;
+    --statusline)
+      STATUSLINE="yes"
+      shift
+      ;;
+    --no-statusline)
+      STATUSLINE="no"
       shift
       ;;
     --verbose)
@@ -486,6 +497,125 @@ case "$PERM_RESULT" in
   WARN:*)  warn "${PERM_RESULT#WARN:}" ;;
 esac
 
+# ─── Step 7: Status line ──────────────────────────────────────────────────
+
+step "7" "Status line integration"
+
+STATUSLINE_SCRIPT="$PROJECT_ROOT/statusline/devctx-statusline.sh"
+STATUSLINE_CONFIGURED=false
+
+if [[ "$STATUSLINE" == "no" ]]; then
+  echo "  Skipped (--no-statusline)"
+elif [[ ! -f "$STATUSLINE_SCRIPT" ]]; then
+  warn "Status line script not found at $STATUSLINE_SCRIPT"
+else
+  # Check for jq
+  JQ_OK=true
+  if ! command -v jq &>/dev/null; then
+    JQ_OK=false
+    echo ""
+    echo "  The status line requires jq (lightweight JSON processor)."
+    printf "  Install jq now? [Y/n]: "
+    read -r jq_confirm
+    if [[ "${jq_confirm:-y}" != [nN] ]]; then
+      case "$PLATFORM" in
+        macos)
+          if command -v brew &>/dev/null; then
+            run_cmd "brew install jq" brew install jq
+            JQ_OK=true
+          else
+            warn "Homebrew not found — install jq manually: https://jqlang.github.io/jq/download/"
+          fi
+          ;;
+        debian)
+          run_cmd "apt install jq" sudo apt-get install -y -qq jq
+          JQ_OK=true
+          ;;
+        redhat)
+          if command -v dnf &>/dev/null; then
+            run_cmd "dnf install jq" sudo dnf install -y -q jq
+          else
+            run_cmd "yum install jq" sudo yum install -y -q jq
+          fi
+          JQ_OK=true
+          ;;
+        arch)
+          run_cmd "pacman install jq" sudo pacman -Sy --noconfirm jq
+          JQ_OK=true
+          ;;
+        *)
+          warn "Unsupported platform for automatic jq install."
+          echo "  Install jq manually: https://jqlang.github.io/jq/download/"
+          ;;
+      esac
+    else
+      echo "  Skipped — status line won't work without jq"
+    fi
+  fi
+
+  if [[ "$JQ_OK" == true ]]; then
+    echo ""
+    echo "  The devctx status line shows project context at the bottom of Claude Code:"
+    printf "  ${DIM}project  ⌥branch  🎯 focus  📋 todos  ⏱ 3m  ✱ Opus 4.6  \$1.24  42%%${RESET}\n"
+    echo ""
+    if [[ "$STATUSLINE" == "yes" ]]; then
+      sl_confirm="y"
+    else
+      printf "  Enable the devctx status line? [Y/n]: "
+      read -r sl_confirm
+    fi
+    if [[ "${sl_confirm:-y}" != [nN] ]]; then
+      # Configure status line in settings.json
+      SL_RESULT="$(node -e "
+        const fs = require('fs');
+        const path = '$SETTINGS_FILE';
+        const script = '$STATUSLINE_SCRIPT';
+
+        let settings;
+        if (fs.existsSync(path)) {
+          const raw = fs.readFileSync(path, 'utf8').trim();
+          if (!raw) { settings = {}; }
+          else {
+            try { settings = JSON.parse(raw); }
+            catch (e) { console.log('WARN:settings file is malformed JSON, skipping'); process.exit(0); }
+          }
+        } else { settings = {}; }
+
+        if (typeof settings !== 'object' || Array.isArray(settings)) {
+          console.log('WARN:settings file has unexpected structure, skipping');
+          process.exit(0);
+        }
+
+        // Check for existing status line
+        if (settings.statusLine) {
+          const existing = settings.statusLine.command || JSON.stringify(settings.statusLine);
+          if (existing.includes('devctx-statusline')) {
+            console.log('SKIP:devctx status line already configured');
+            process.exit(0);
+          }
+          // Back up existing config
+          settings._statusLineBackup = settings.statusLine;
+          console.log('REPLACED:existing status line backed up to _statusLineBackup');
+        } else {
+          console.log('OK:status line configured');
+        }
+
+        settings.statusLine = { type: 'command', command: script };
+        fs.writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
+      ")"
+
+      case "$SL_RESULT" in
+        OK:*)       success "  ${SL_RESULT#OK:}" ; STATUSLINE_CONFIGURED=true ;;
+        SKIP:*)     echo "  ${SL_RESULT#SKIP:}" ; STATUSLINE_CONFIGURED=true ;;
+        REPLACED:*) warn "${SL_RESULT#REPLACED:}"; success "  Status line configured" ; STATUSLINE_CONFIGURED=true ;;
+        WARN:*)     warn "${SL_RESULT#WARN:}" ;;
+      esac
+    else
+      echo "  Skipped — you can enable it later with /devctx-statusline"
+    fi
+  fi
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 echo ""
@@ -514,6 +644,13 @@ case "$PERM_RESULT" in
   OK:*|SKIP:*) printf "  Permissions:     mcp__devctx allowed\n" ;;
   *)           printf "  Permissions:     ${YELLOW}manual config needed${RESET}\n" ;;
 esac
+
+# Status line
+if [[ "$STATUSLINE_CONFIGURED" == true ]]; then
+  printf "  Status line:     enabled\n"
+else
+  printf "  Status line:     ${DIM}not configured${RESET}\n"
+fi
 
 echo ""
 printf "  Get started:  ${CYAN}claude${RESET} → ${CYAN}/devctx-init${RESET}\n"

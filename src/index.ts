@@ -10,7 +10,7 @@ import {
   logActivity, getRecentActivity, getLastActivityByType,
   getTodos, addTodo, updateTodo, removeTodo, cleanupTodos, normalizeForComparison, isSimilarToAny,
   getBranchNotes, saveBranchNotes, listBranchNotes,
-  updateClaudeMd,
+  updateClaudeMd, updateStatusLineCache,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
   saveSourceTodos, getSourceTodos,
   saveSessionRecord,
@@ -62,6 +62,12 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
   return null;
 }
 
+/** Sync both CLAUDE.md and status line cache in one call */
+function syncSideEffects(repoRoot: string, branch: string, state: ReturnType<typeof getProjectState>, todos: ReturnType<typeof getTodos>): void {
+  updateClaudeMd(repoRoot, branch, state, todos);
+  updateStatusLineCache(repoRoot, branch);
+}
+
 // --- Auto-session-start ---
 
 let sessionStarted = false;
@@ -84,6 +90,9 @@ function autoSessionStart(repoRoot: string): void {
     branch,
   });
   sessionStarted = true;
+
+  // Write initial status line cache
+  updateStatusLineCache(repoRoot, branch);
 
   // Build greeting for the first tool response
   const state = getProjectState(repoRoot);
@@ -201,7 +210,9 @@ server.registerTool(
 
     if (sync_claude_md) {
       const todos = getTodos(repoRoot);
-      updateClaudeMd(repoRoot, branch, state, todos);
+      syncSideEffects(repoRoot, branch, state, todos);
+    } else {
+      updateStatusLineCache(repoRoot, branch);
     }
 
     return {
@@ -249,6 +260,7 @@ Always log immediately after the action completes. This data powers the VITALS d
     const branch = getCurrentBranch(repoRoot);
 
     logActivity(repoRoot, { type, message, branch, metadata });
+    updateStatusLineCache(repoRoot, branch);
 
     const typeIcon: Record<string, string> = {
       commit: "💾", push: "🚀", build: "🔨", run: "▶️", test: "🧪",
@@ -329,7 +341,9 @@ server.registerTool(
     if (sync_claude_md) {
       const state = getProjectState(repoRoot);
       const todos = getTodos(repoRoot);
-      updateClaudeMd(repoRoot, currentBranch, state, todos);
+      syncSideEffects(repoRoot, currentBranch, state, todos);
+    } else {
+      updateStatusLineCache(repoRoot, currentBranch);
     }
 
     return {
@@ -382,7 +396,9 @@ server.registerTool(
       const state = getProjectState(repoRoot);
       const todos = getTodos(repoRoot);
       const branch = getCurrentBranch(repoRoot);
-      updateClaudeMd(repoRoot, branch, state, todos);
+      syncSideEffects(repoRoot, branch, state, todos);
+    } else {
+      updateStatusLineCache(repoRoot, getCurrentBranch(repoRoot));
     }
 
     return {
@@ -447,6 +463,7 @@ server.registerTool(
     if (!removed) {
       return { content: [{ type: "text", text: `❌ Todo \`${id}\` not found.` }], isError: true };
     }
+    updateStatusLineCache(repoRoot, getCurrentBranch(repoRoot));
     return { content: [{ type: "text", text: `🗑️ Todo \`${id}\` removed.` }] };
   }
 );
@@ -545,7 +562,7 @@ server.registerTool(
     const branch = getCurrentBranch(repoRoot);
     const state = getProjectState(repoRoot);
     const todos = getTodos(repoRoot);
-    updateClaudeMd(repoRoot, branch, state, todos);
+    syncSideEffects(repoRoot, branch, state, todos);
 
     return {
       content: [{ type: "text", text: `✅ CLAUDE.md synced with current devctx state.\nBranch: \`${branch}\` | Focus: ${state.currentFocus || "(not set)"} | Active todos: ${todos.filter((t) => t.status !== "done").length}` }],
@@ -696,7 +713,7 @@ Safe to run multiple times — won't overwrite existing data without force flag.
     // ── Step 8: Sync to CLAUDE.md (skip for truly empty projects) ──
     if (scan.environment !== "empty" || focus) {
       const todos = getTodos(repoRoot);
-      updateClaudeMd(repoRoot, branch, state, todos);
+      syncSideEffects(repoRoot, branch, state, todos);
       output.push("  ✅ CLAUDE.md updated");
     }
 
@@ -785,6 +802,7 @@ server.registerTool(
     if (notInit) return notInit;
 
     const state = setDevctxActive(repoRoot, false);
+    updateStatusLineCache(repoRoot, getCurrentBranch(repoRoot));
 
     return {
       content: [{ type: "text", text: `⏸️ devctx paused for **${state.projectName}**.\n\nRead operations still work — you can still use \`devctx_whereami\`, view todos, and check git status.\nWrite operations (logging, todo changes, focus updates) are disabled until you run \`devctx_start\`.` }],
@@ -819,11 +837,13 @@ server.registerTool(
     // Ensure git hooks are installed (idempotent)
     const hookResult = installHooks(repoRoot);
 
+    const startBranch = getCurrentBranch(repoRoot);
     logActivity(repoRoot, {
       type: "session_start",
       message: "devctx tracking resumed",
-      branch: getCurrentBranch(repoRoot),
+      branch: startBranch,
     });
+    updateStatusLineCache(repoRoot, startBranch);
 
     const hookNote = hookResult.installed.length > 0
       ? `\n✅ Git hooks verified: ${hookResult.installed.join(", ")}`
@@ -1123,12 +1143,14 @@ Supported commands: commit, push, pull, checkout, merge, stash, status.`,
           return { content: [{ type: "text", text: `❌ Unknown command: ${command}` }], isError: true };
       }
 
+      const activityBranch = command === "checkout" ? (branch || currentBranch) : currentBranch;
       logActivity(repoRoot, {
         type: activityType as any,
         message: activityMessage,
-        branch: command === "checkout" ? (branch || currentBranch) : currentBranch,
+        branch: activityBranch,
         metadata,
       });
+      updateStatusLineCache(repoRoot, activityBranch);
 
       const typeIcon: Record<string, string> = {
         commit: "💾", push: "🚀", pull: "⬇️", checkout: "🔀", merge: "🔗", stash: "📦",
@@ -1437,10 +1459,10 @@ server.registerTool(
       // Clean up todos: remove resolved, deduplicate
       const cleanup = cleanupTodos(repoRoot);
 
-      // Sync CLAUDE.md, auto-commit, and push so we leave clean
+      // Sync CLAUDE.md + status line cache, auto-commit, and push so we leave clean
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
-      updateClaudeMd(repoRoot, branch, updatedState, updatedTodos);
+      syncSideEffects(repoRoot, branch, updatedState, updatedTodos);
       const committed = commitFiles(repoRoot, ["CLAUDE.md"], "devctx: session goodbye");
       if (committed) {
         try { gitPush(repoRoot); } catch { /* best effort — offline is fine */ }

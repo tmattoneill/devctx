@@ -72,6 +72,7 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 
 ### Active Todos
 - [ ] [high] Verify the MCP server is working correctly in Claude Code after restart (`main`)
+- [ ] [high] Fix MCP error on logout (exit) (`main`)
 - [ ] [medium] Document the todo ID generation change in README or changelog (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`main`)
