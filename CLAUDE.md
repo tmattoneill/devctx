@@ -68,15 +68,17 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 22/02/2026, 13:03:12
+**Last Updated:** 22/02/2026, 13:22:17
 
 ### Active Todos
 - [ ] [high] Verify the MCP server is working correctly in Claude Code after restart (`main`)
 - [ ] [high] Fix MCP error on logout (exit) (`main`)
 - [ ] [medium] Document the todo ID generation change in README or changelog (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
-- [ ] [medium] Address the new TODO item in src/dashboard/client/src/style.css:277 (`main`)
-- [ ] [medium] Update CLAUDE.md to document the new versioning capabilities and tools (`main`)
 - [ ] [medium] Address the remaining TODO item in src/dashboard/client/src/style.css:277 (`main`)
+- [ ] [medium] Update CLAUDE.md to document the new versioning capabilities and tools (`main`)
+- [ ] [medium] Add integration tests that cover the MCP tool handlers and server startup (`main`)
+- [ ] [medium] Test the complete devctx workflow end-to-end with Claude Code (`main`)
+- [ ] [low] Clean up the TODO comments in scanner.test.ts that are part of test data strings (`main`)
 
 <!-- DEVCTX:END -->
