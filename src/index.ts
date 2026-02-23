@@ -1603,6 +1603,7 @@ process.on("unhandledRejection", () => {});
 process.on("uncaughtException", () => {});
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
+process.on("SIGHUP", () => process.exit(0));
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
