@@ -1607,6 +1607,18 @@ process.on("SIGINT", () => process.exit(0));
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // When Claude Code exits, it closes our stdin pipe. The StdioServerTransport
+  // doesn't handle stdin 'end'/'close', so we must detect this ourselves and
+  // shut down cleanly — otherwise the process lingers or exits uncleanly,
+  // causing Claude Code to report "1 MCP server failed".
+  process.stdin.on("end", () => {
+    server.close().catch(() => {});
+    process.exit(0);
+  });
+
+  // Handle broken stdout pipe (Claude Code closed its end) gracefully.
+  process.stdout.on("error", () => {});
 }
 
 main().catch(() => {
