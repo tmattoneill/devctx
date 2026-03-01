@@ -112,10 +112,33 @@ if [ -n "$CACHE_FILE" ]; then
   PROJECT_NAME=$(echo "$CACHE" | jq -r '.projectName // empty')
   FOCUS=$(echo "$CACHE" | jq -r '.currentFocus // empty')
   ACTIVE=$(echo "$CACHE" | jq -r '.active // true')
-  BRANCH=$(echo "$CACHE" | jq -r '.branch // empty')
   TODO_COUNT=$(echo "$CACHE" | jq -r '.todoCount // 0')
   HIGH_COUNT=$(echo "$CACHE" | jq -r '.highPriorityCount // 0')
-  LAST_COMMIT=$(echo "$CACHE" | jq -r '.lastCommit // empty')
+
+  # Read live branch from git (fall back to cache if git unavailable)
+  BRANCH=""
+  if [ -n "$PROJECT_DIR" ] && command -v git &>/dev/null; then
+    BRANCH=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  fi
+  if [ -z "$BRANCH" ]; then
+    BRANCH=$(echo "$CACHE" | jq -r '.branch // empty')
+  fi
+
+  # Read lastCommit from activity.log directly (not from stale cache)
+  ACTIVITY_LOG="$PROJECT_DIR/.devctx/activity.log"
+  LAST_COMMIT=""
+  LAST_PUSH=""
+  if [ -f "$ACTIVITY_LOG" ]; then
+    LAST_COMMIT=$(grep '"type":"commit"' "$ACTIVITY_LOG" | tail -1 | jq -r '.timestamp // empty' 2>/dev/null || true)
+    LAST_PUSH=$(grep '"type":"push"' "$ACTIVITY_LOG" | tail -1 | jq -r '.timestamp // empty' 2>/dev/null || true)
+  fi
+  # Fall back to cache values if activity.log had no entries
+  if [ -z "$LAST_COMMIT" ]; then
+    LAST_COMMIT=$(echo "$CACHE" | jq -r '.lastCommit // empty')
+  fi
+  if [ -z "$LAST_PUSH" ]; then
+    LAST_PUSH=$(echo "$CACHE" | jq -r '.lastPush // empty')
+  fi
 
   # Project name
   if [ -n "$PROJECT_NAME" ]; then
@@ -154,6 +177,14 @@ if [ -n "$CACHE_FILE" ]; then
   COMMIT_AGO=$(time_ago "$LAST_COMMIT")
   if [ -n "$COMMIT_AGO" ]; then
     SEGMENTS+=("${DIM}⏱ ${COMMIT_AGO}${RESET}")
+  fi
+
+  # Time since last push (only shown if push is older than commit, i.e., unpushed commits exist)
+  if [ -n "$LAST_PUSH" ] && [ -n "$LAST_COMMIT" ] && [ "$LAST_PUSH" \< "$LAST_COMMIT" ]; then
+    PUSH_AGO=$(time_ago "$LAST_PUSH")
+    if [ -n "$PUSH_AGO" ]; then
+      SEGMENTS+=("${DIM}↑ ${PUSH_AGO}${RESET}")
+    fi
   fi
 fi
 

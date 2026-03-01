@@ -118,7 +118,8 @@ export function formatTodoList(todos: Todo[], branch?: string): string {
         const priorityIcon = t.priority === "critical" ? "🔴" : t.priority === "high" ? "🟠" : t.priority === "medium" ? "🟡" : "🟢";
         const tags = t.tags?.length ? ` [${t.tags.join(", ")}]` : "";
         const suggestedTag = t.source === "suggested" ? " [suggested]" : "";
-        lines.push(`- ${priorityIcon} **${t.text}**${suggestedTag}${tags} — \`${t.id}\``);
+        const linearTag = t.linearIdentifier ? ` [${t.linearIdentifier}]` : "";
+        lines.push(`- ${priorityIcon} **${t.text}**${suggestedTag}${linearTag}${tags} — \`${t.id}\``);
       }
       lines.push("");
     }

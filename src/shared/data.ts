@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { createHash, randomBytes } from "crypto";
-import type { ProjectState, Todo, ActivityEntry, SourceTodo } from "./types.js";
+import type { ProjectState, Todo, ActivityEntry, SourceTodo, LinearConfig } from "./types.js";
 
 const CLAUDETTE_DIR = ".devctx";
 const ACTIVITY_LOG = "activity.log";
@@ -203,7 +203,7 @@ export function addTodo(repoRoot: string, text: string, priority: Todo["priority
   return todo;
 }
 
-export function updateTodo(repoRoot: string, id: string, updates: Partial<Pick<Todo, "text" | "status" | "priority" | "branch" | "tags">>): Todo | null {
+export function updateTodo(repoRoot: string, id: string, updates: Partial<Pick<Todo, "text" | "status" | "priority" | "branch" | "tags" | "linearId" | "linearUrl" | "linearIdentifier" | "linearSyncedAt">>): Todo | null {
   const todos = getTodos(repoRoot);
   const idx = todos.findIndex((t) => t.id === id);
   if (idx === -1) return null;
@@ -376,6 +376,26 @@ export function listBranchNotes(repoRoot: string): string[] {
   return readdirSync(notesDir)
     .filter((f) => f.endsWith(".md"))
     .map((f) => f.replace(/__/g, "/").replace(/\.md$/, ""));
+}
+
+// --- Linear config ---
+
+const LINEAR_CONFIG_FILE = "linear.json";
+
+export function getLinearConfig(repoRoot: string): LinearConfig | null {
+  const dir = join(repoRoot, CLAUDETTE_DIR);
+  const configFile = join(dir, LINEAR_CONFIG_FILE);
+  if (!existsSync(configFile)) return null;
+  try {
+    return JSON.parse(readFileSync(configFile, "utf-8")) as LinearConfig;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLinearConfig(repoRoot: string, config: LinearConfig): void {
+  const dir = ensuredevctxDir(repoRoot);
+  writeFileSync(join(dir, LINEAR_CONFIG_FILE), JSON.stringify(config, null, 2));
 }
 
 // --- Status line cache ---

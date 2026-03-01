@@ -14,7 +14,9 @@ import {
   isDevctxActive, setDevctxActive, isDevctxInitialized,
   saveSourceTodos, getSourceTodos,
   saveSessionRecord,
+  getLinearConfig, saveLinearConfig,
 } from "./shared/index.js";
+import { fetchViewerAndTeams, syncWithLinear, updateLinearIssue } from "./services/linear.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
 import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
@@ -367,6 +369,7 @@ server.registerTool(
       priority: z.enum(["low", "medium", "high", "critical"]).optional().describe("Updated priority"),
       tags: z.array(z.string()).optional().describe("Updated tags"),
       sync_claude_md: z.boolean().default(true).describe("Whether to update CLAUDE.md"),
+      sync_linear: z.boolean().default(true).describe("Whether to push status/priority changes to Linear if the todo has a linearId and LINEAR_API_KEY is set"),
     },
     annotations: {
       readOnlyHint: false,
@@ -375,7 +378,7 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ id, status, text, priority, tags, sync_claude_md }) => {
+  async ({ id, status, text, priority, tags, sync_claude_md, sync_linear }) => {
     const repoRoot = resolveRepoRoot();
     autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
@@ -399,6 +402,21 @@ server.registerTool(
       syncSideEffects(repoRoot, branch, state, todos);
     } else {
       updateStatusLineCache(repoRoot, getCurrentBranch(repoRoot));
+    }
+
+    // Fire-and-forget push to Linear if todo has a linearId
+    if (sync_linear && todo.linearId && process.env.LINEAR_API_KEY) {
+      const config = getLinearConfig(repoRoot);
+      if (config) {
+        const linearPriorityMap: Record<string, number> = { critical: 1, high: 2, medium: 3, low: 4 };
+        const linearUpdates: Record<string, unknown> = {};
+        if (priority) linearUpdates.priority = linearPriorityMap[todo.priority] ?? 3;
+        if (text) linearUpdates.title = todo.text;
+        // Push async, don't await — never block the response
+        updateLinearIssue(process.env.LINEAR_API_KEY, todo.linearId, linearUpdates).then(() => {
+          updateTodo(repoRoot, todo.id, { linearSyncedAt: new Date().toISOString() });
+        }).catch(() => { /* best effort */ });
+      }
     }
 
     return {
@@ -1533,6 +1551,213 @@ server.registerTool(
 );
 
 // ============================================================
+// TOOL: devctx_linear_sync
+// ============================================================
+server.registerTool(
+  "devctx_linear_sync",
+  {
+    title: "Linear Issue Sync",
+    description: `Sync Linear issues with devctx todos. Requires LINEAR_API_KEY environment variable.
+
+- configure=true: Connect this project to Linear — fetches your teams and saves config to .devctx/linear.json
+- direction="pull": Import assigned Linear issues as todos (default pulls open issues assigned to you)
+- direction="push": Push unlinked todos to Linear as new issues, and push status updates for linked todos
+- direction="both" (default): Pull then push
+
+After syncing, todos linked to Linear issues show their identifier (e.g. [ENG-42]) in devctx_todo_list.
+
+If LINEAR_API_KEY is not set, returns a helpful error explaining how to configure it.`,
+    inputSchema: {
+      direction: z.enum(["both", "pull", "push"]).default("both").describe("Sync direction"),
+      configure: z.boolean().default(false).describe("Run configuration wizard — fetches teams, saves .devctx/linear.json"),
+      team_key: z.string().optional().describe("Team key to use when you have multiple Linear teams (e.g. 'ENG')"),
+    },
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ direction, configure, team_key }) => {
+    const repoRoot = resolveRepoRoot();
+    autoSessionStart(repoRoot);
+    const paused = guardActive(repoRoot);
+    if (paused) return paused;
+    const notInit = guardInitialized(repoRoot);
+    if (notInit) return notInit;
+
+    const apiKey = process.env.LINEAR_API_KEY;
+    if (!apiKey) {
+      return {
+        content: [{
+          type: "text",
+          text: [
+            "❌ **LINEAR_API_KEY not set.**",
+            "",
+            "To use Linear sync, add your Linear API key to the devctx MCP server environment:",
+            "",
+            "1. Get your API key from Linear → Settings → API → Personal API keys",
+            "2. Add it to your Claude Code MCP config (`~/.claude/settings.json`):",
+            "```json",
+            `{`,
+            `  "mcpServers": {`,
+            `    "devctx": {`,
+            `      "env": { "LINEAR_API_KEY": "lin_api_..." }`,
+            `    }`,
+            `  }`,
+            `}`,
+            "```",
+            "3. Restart Claude Code and run `devctx_linear_sync` with `configure=true`",
+          ].join("\n"),
+        }],
+        isError: true,
+      };
+    }
+
+    // --- Configure mode ---
+    if (configure) {
+      try {
+        const { userId, teams } = await fetchViewerAndTeams(apiKey);
+
+        if (teams.length === 0) {
+          return {
+            content: [{ type: "text", text: "❌ No Linear teams found for your account." }],
+            isError: true,
+          };
+        }
+
+        // Select team
+        let selectedTeam = teams[0];
+        if (teams.length > 1) {
+          if (team_key) {
+            const match = teams.find(t => t.key.toLowerCase() === team_key.toLowerCase());
+            if (!match) {
+              return {
+                content: [{
+                  type: "text",
+                  text: [
+                    `❌ Team key \`${team_key}\` not found. Available teams:`,
+                    ...teams.map(t => `- **${t.key}**: ${t.name}`),
+                    "",
+                    "Re-run with `team_key` set to one of the above.",
+                  ].join("\n"),
+                }],
+                isError: true,
+              };
+            }
+            selectedTeam = match;
+          } else {
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  "⚠️ You have multiple Linear teams. Re-run with `team_key` to select one:",
+                  ...teams.map(t => `- **${t.key}**: ${t.name}`),
+                ].join("\n"),
+              }],
+            };
+          }
+        }
+
+        const config = {
+          teamId: selectedTeam.id,
+          teamKey: selectedTeam.key,
+          userId,
+          statusMap: {
+            todo: "Todo",
+            in_progress: "In Progress",
+            done: "Done",
+            blocked: "Blocked",
+          },
+          defaultPriority: 3,
+        };
+
+        saveLinearConfig(repoRoot, config);
+
+        logActivity(repoRoot, {
+          type: "note",
+          message: `Linear configured: team ${selectedTeam.key} (${selectedTeam.name})`,
+          branch: getCurrentBranch(repoRoot),
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: [
+              `✅ **Linear configured!**`,
+              "",
+              `**Team:** ${selectedTeam.name} (\`${selectedTeam.key}\`)`,
+              `**Available states:** ${selectedTeam.states.map((s: { name: string; type: string }) => `${s.name} (${s.type})`).join(", ")}`,
+              "",
+              "Config saved to `.devctx/linear.json`. Run `devctx_linear_sync` to sync issues.",
+            ].join("\n"),
+          }],
+        };
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `❌ Linear configuration failed: ${errMsg}` }],
+          isError: true,
+        };
+      }
+    }
+
+    // --- Sync mode ---
+    const config = getLinearConfig(repoRoot);
+    if (!config) {
+      return {
+        content: [{
+          type: "text",
+          text: "❌ Linear not configured for this project. Run `devctx_linear_sync` with `configure=true` first.",
+        }],
+        isError: true,
+      };
+    }
+
+    try {
+      const branch = getCurrentBranch(repoRoot);
+      const result = await syncWithLinear(repoRoot, apiKey, config, direction, branch);
+
+      logActivity(repoRoot, {
+        type: "note",
+        message: `Linear sync (${direction}): ${result.pulled} pulled, ${result.pushed} pushed, ${result.updated} updated`,
+        branch,
+      });
+
+      // Sync CLAUDE.md and status line
+      const state = getProjectState(repoRoot);
+      const todos = getTodos(repoRoot);
+      syncSideEffects(repoRoot, branch, state, todos);
+
+      const lines: string[] = [
+        `✅ **Linear sync complete** (${direction})`,
+        "",
+        `- Pulled from Linear: **${result.pulled}** new todo(s)`,
+        `- Pushed to Linear: **${result.pushed}** new issue(s)`,
+        `- Updated: **${result.updated}** issue(s)`,
+      ];
+
+      if (result.errors.length > 0) {
+        lines.push("", `⚠️ **${result.errors.length} error(s):**`);
+        for (const e of result.errors) {
+          lines.push(`- ${e}`);
+        }
+      }
+
+      lines.push("", "Run `devctx_todo_list` to see todos with their Linear identifiers.");
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: `❌ Linear sync failed: ${errMsg}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ============================================================
 // TOOL: devctx_help
 // ============================================================
 server.registerTool(
@@ -1563,6 +1788,7 @@ server.registerTool(
       "| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash. |",
       "| `/devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
       "| `/devctx-version` | Semantic versioning — AI-suggested bump level, creates annotated git tags, pushes to remote. |",
+      "| `/devctx-linear` | Sync Linear issues with devctx todos (configure, pull, push). Requires LINEAR_API_KEY. |",
       "| `/devctx-start` | Resume tracking (happens automatically on new sessions). |",
       "| `/devctx-stop` | Pause tracking manually. Read-only tools still work. |",
       "| `/devctx-help` | This help screen. |",

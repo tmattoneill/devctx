@@ -23,7 +23,24 @@ export interface Todo {
   created: string;
   updated: string;
   tags?: string[];
-  source?: "manual" | "suggested";
+  source?: "manual" | "suggested" | "linear";
+  linearId?: string;          // Linear issue UUID (stable, used for API calls)
+  linearUrl?: string;         // https://linear.app/team/issue/PROJ-123
+  linearIdentifier?: string;  // human-readable "PROJ-123"
+  linearSyncedAt?: string;    // ISO timestamp of last sync
+}
+
+export interface LinearConfig {
+  teamId: string;
+  teamKey: string;
+  userId?: string;
+  statusMap: {
+    todo: string;         // default: "Todo"
+    in_progress: string;  // default: "In Progress"
+    done: string;         // default: "Done"
+    blocked: string;      // default: "Blocked"
+  };
+  defaultPriority: number;  // Linear int: 1=Urgent, 2=High, 3=Medium, 4=Low
 }
 
 export interface ActivityEntry {
