@@ -70,10 +70,11 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 22/02/2026, 19:42:52
+**Last Updated:** 01/03/2026, 15:59:12
 
 ### Active Todos
 - [ ] [high] Investigate and fix the MCP error on logout/exit that was noted during testing (`main`)
+- [ ] [high] Write documentation for the new Linear integration in CLAUDE.md or README (`main`)
 - [ ] [medium] Document the todo ID generation change in README or changelog (`main`)
 - [ ] [medium] Add the untracked .claude/ directory to version control (`main`)
 - [ ] [medium] Address the remaining TODO item in src/dashboard/client/src/style.css:277 (`main`)
@@ -82,6 +83,8 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 - [ ] [medium] Test the complete devctx workflow end-to-end with Claude Code (`main`)
 - [ ] [medium] Add error handling tests for MCP server shutdown and cleanup scenarios (`main`)
 - [ ] [medium] Validate that the stderr cleanup doesn't interfere with legitimate error reporting in production (`main`)
+- [ ] [medium] Add unit tests for the Linear GraphQL client and sync functionality (`main`)
+- [ ] [medium] Validate Linear integration with real Linear workspace data (`main`)
 - [ ] [low] Clean up the TODO comments in scanner.test.ts that are part of test data strings (`main`)
 
 <!-- DEVCTX:END -->
