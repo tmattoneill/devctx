@@ -103,12 +103,12 @@ export async function fetchViewerAndTeams(apiKey: string): Promise<{
 
 export async function fetchAssignedIssues(apiKey: string, teamId: string, userId: string): Promise<LinearIssue[]> {
   const query = `
-    query AssignedIssues($teamId: String!, $userId: ID!) {
+    query AssignedIssues($teamId: ID!, $userId: ID!) {
       issues(
         filter: {
           team: { id: { eq: $teamId } }
           assignee: { id: { eq: $userId } }
-          state: { type: { nin: ["completed", "cancelled"] } }
+          state: { type: { nin: ["completed", "canceled"] } }
         }
       ) {
         nodes {
@@ -223,7 +223,7 @@ function findStateId(
   const typeMapping: Record<string, string[]> = {
     todo: ["unstarted", "backlog"],
     in_progress: ["started"],
-    done: ["completed", "cancelled"],
+    done: ["completed", "canceled"],
     blocked: ["unstarted", "backlog"],
   };
 
@@ -237,7 +237,7 @@ function linearStateToDEvctxStatus(stateType: string): Todo["status"] {
   switch (stateType) {
     case "started": return "in_progress";
     case "completed":
-    case "cancelled": return "done";
+    case "canceled": return "done";
     default: return "todo";
   }
 }
