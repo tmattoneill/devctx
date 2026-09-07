@@ -15,6 +15,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Claude Code local permissions (machine-specific paths)
+.claude/settings.local.json
+
 # Editor
 .vscode/
 .idea/
