@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, appendFileSync, renameSync, unlinkSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { createHash, randomBytes } from "crypto";
 import type { ProjectState, Todo, ActivityEntry, SourceTodo, LinearConfig } from "./types.js";
@@ -7,6 +7,45 @@ const CLAUDETTE_DIR = ".devctx";
 const ACTIVITY_LOG = "activity.log";
 const PROJECT_STATE = "state.json";
 const TODOS_FILE = "todos.json";
+
+// --- Safe writes ---
+
+/**
+ * Write via a temp file and rename.
+ *
+ * A plain writeFileSync truncates the target first, so a process that dies
+ * mid-write (the MCP server takes a SIGHUP when Claude Code exits) leaves
+ * truncated JSON behind. rename(2) is atomic within a filesystem, so a reader
+ * sees either the old file or the new one, never a half-written one.
+ */
+function writeFileAtomic(file: string, content: string): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, content);
+    renameSync(tmp, file);
+  } catch (error) {
+    try { if (existsSync(tmp)) unlinkSync(tmp); } catch { /* nothing more to do */ }
+    throw error;
+  }
+}
+
+function writeJsonAtomic(file: string, data: unknown): void {
+  writeFileAtomic(file, JSON.stringify(data, null, 2));
+}
+
+/**
+ * Move an unparseable file aside instead of letting the caller treat it as
+ * empty. Callers here read-modify-write whole files, so returning [] for a
+ * corrupt file would make the next save erase real data permanently.
+ */
+function quarantineCorruptFile(file: string): void {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  try {
+    renameSync(file, `${file}.corrupt-${stamp}`);
+  } catch {
+    // If we cannot even rename it, leave it alone rather than destroying it.
+  }
+}
 
 // --- Directory management ---
 
@@ -46,7 +85,8 @@ export function getProjectState(repoRoot: string): ProjectState {
     try {
       return JSON.parse(readFileSync(stateFile, "utf-8"));
     } catch {
-      // corrupted, return default
+      // Corrupted. Keep a copy before the default state overwrites it.
+      quarantineCorruptFile(stateFile);
     }
   }
 
@@ -65,7 +105,7 @@ export function getProjectState(repoRoot: string): ProjectState {
 export function saveProjectState(repoRoot: string, state: ProjectState): void {
   const dir = ensuredevctxDir(repoRoot);
   state.lastUpdated = new Date().toISOString();
-  writeFileSync(join(dir, PROJECT_STATE), JSON.stringify(state, null, 2));
+  writeJsonAtomic(join(dir, PROJECT_STATE), state);
 }
 
 export function isDevctxActive(repoRoot: string): boolean {
@@ -106,12 +146,10 @@ export function logActivity(repoRoot: string, entry: Omit<ActivityEntry, "timest
 
   const line = JSON.stringify(fullEntry) + "\n";
 
-  if (existsSync(logFile)) {
-    const existing = readFileSync(logFile, "utf-8");
-    writeFileSync(logFile, existing + line);
-  } else {
-    writeFileSync(logFile, line);
-  }
+  // Append rather than rewrite: the git hooks append to this same file with
+  // `>>` from any terminal, so a read-modify-write here would drop any entry
+  // written between the read and the write.
+  appendFileSync(logFile, line);
 }
 
 export function getRecentActivity(repoRoot: string, count: number = 20, type?: string): ActivityEntry[] {
@@ -167,18 +205,23 @@ export function getTodos(repoRoot: string, branch?: string, status?: string): To
   if (!existsSync(todosFile)) return [];
 
   try {
-    let todos: Todo[] = JSON.parse(readFileSync(todosFile, "utf-8"));
+    const parsed = JSON.parse(readFileSync(todosFile, "utf-8"));
+    if (!Array.isArray(parsed)) throw new Error("todos.json is not an array");
+    let todos = parsed as Todo[];
     if (branch) todos = todos.filter((t) => !t.branch || t.branch === branch);
     if (status) todos = todos.filter((t) => t.status === status);
     return todos;
   } catch {
+    // Move the bad file aside so the next saveTodos() writes a fresh list
+    // instead of overwriting recoverable data with an empty array.
+    quarantineCorruptFile(todosFile);
     return [];
   }
 }
 
 function saveTodos(repoRoot: string, todos: Todo[]): void {
   const dir = ensuredevctxDir(repoRoot);
-  writeFileSync(join(dir, TODOS_FILE), JSON.stringify(todos, null, 2));
+  writeJsonAtomic(join(dir, TODOS_FILE), todos);
 }
 
 export function addTodo(repoRoot: string, text: string, priority: Todo["priority"] = "medium", branch?: string, tags?: string[], source?: Todo["source"]): Todo {
@@ -203,7 +246,7 @@ export function addTodo(repoRoot: string, text: string, priority: Todo["priority
   return todo;
 }
 
-export function updateTodo(repoRoot: string, id: string, updates: Partial<Pick<Todo, "text" | "status" | "priority" | "branch" | "tags" | "linearId" | "linearUrl" | "linearIdentifier" | "linearSyncedAt">>): Todo | null {
+export function updateTodo(repoRoot: string, id: string, updates: Partial<Pick<Todo, "text" | "status" | "priority" | "branch" | "tags" | "linearId" | "linearUrl" | "linearIdentifier" | "linearSyncedAt" | "linearSyncError" | "source">>): Todo | null {
   const todos = getTodos(repoRoot);
   const idx = todos.findIndex((t) => t.id === id);
   if (idx === -1) return null;
@@ -211,6 +254,40 @@ export function updateTodo(repoRoot: string, id: string, updates: Partial<Pick<T
   todos[idx] = { ...todos[idx], ...updates, updated: new Date().toISOString() };
   saveTodos(repoRoot, todos);
   return todos[idx];
+}
+
+/**
+ * Record that a todo now matches its Linear issue.
+ *
+ * Stamps `linearSyncedAt` with the same timestamp as `updated`. Writing them
+ * from two separate `new Date()` calls leaves `updated` a millisecond ahead,
+ * which the sync's "devctx is newer than Linear" test reads as dirty, so every
+ * todo would re-push on every sync forever.
+ */
+export function markTodoSynced(
+  repoRoot: string,
+  id: string,
+  fields: Partial<Pick<Todo, "status" | "linearId" | "linearUrl" | "linearIdentifier">> = {},
+): Todo | null {
+  const todos = getTodos(repoRoot);
+  const idx = todos.findIndex((t) => t.id === id);
+  if (idx === -1) return null;
+
+  const stamp = new Date().toISOString();
+  const next: Todo = { ...todos[idx], ...fields, updated: stamp, linearSyncedAt: stamp };
+  delete next.linearSyncError;
+
+  todos[idx] = next;
+  saveTodos(repoRoot, todos);
+  return next;
+}
+
+/**
+ * Record that a push to Linear failed. Leaves `linearSyncedAt` behind
+ * `updated` so the next full sync retries this todo.
+ */
+export function markTodoSyncFailed(repoRoot: string, id: string, error: string): Todo | null {
+  return updateTodo(repoRoot, id, { linearSyncError: error });
 }
 
 export function removeTodo(repoRoot: string, id: string): boolean {
@@ -337,7 +414,7 @@ const SOURCE_TODOS_FILE = "source-todos.json";
 
 export function saveSourceTodos(repoRoot: string, todos: SourceTodo[]): void {
   const dir = ensuredevctxDir(repoRoot);
-  writeFileSync(join(dir, SOURCE_TODOS_FILE), JSON.stringify(todos, null, 2));
+  writeJsonAtomic(join(dir, SOURCE_TODOS_FILE), todos);
 }
 
 export function getSourceTodos(repoRoot: string): SourceTodo[] {
@@ -366,7 +443,7 @@ export function saveBranchNotes(repoRoot: string, branch: string, content: strin
   const dir = ensuredevctxDir(repoRoot);
   const notesDir = join(dir, "branches");
   mkdirSync(notesDir, { recursive: true });
-  writeFileSync(join(notesDir, branchFileName(branch)), content);
+  writeFileAtomic(join(notesDir, branchFileName(branch)), content);
 }
 
 export function listBranchNotes(repoRoot: string): string[] {
@@ -395,7 +472,7 @@ export function getLinearConfig(repoRoot: string): LinearConfig | null {
 
 export function saveLinearConfig(repoRoot: string, config: LinearConfig): void {
   const dir = ensuredevctxDir(repoRoot);
-  writeFileSync(join(dir, LINEAR_CONFIG_FILE), JSON.stringify(config, null, 2));
+  writeJsonAtomic(join(dir, LINEAR_CONFIG_FILE), config);
 }
 
 // --- Status line cache ---
@@ -433,37 +510,81 @@ export function updateStatusLineCache(repoRoot: string, branch: string): void {
     updatedAt: new Date().toISOString(),
   };
 
-  writeFileSync(join(dir, "statusline.json"), JSON.stringify(cache, null, 2));
+  writeJsonAtomic(join(dir, "statusline.json"), cache);
 }
 
-// --- CLAUDE.md management ---
+// --- Agent context file management ---
 
-export function updateClaudeMd(repoRoot: string, branch: string, state: ProjectState, todos: Todo[]): void {
-  const claudeMdPath = join(repoRoot, "CLAUDE.md");
-  let content = "";
+/**
+ * Files that carry the devctx context section, in preference order.
+ *
+ * devctx updates whichever of these the repo already has and creates none of
+ * them beyond the default. A Claude project keeps CLAUDE.md, a Codex project
+ * keeps AGENTS.md, a project that wants both gets both, and a project with
+ * neither gets CLAUDE.md.
+ */
+const CLAUDE_MD = "CLAUDE.md";
+export const AGENT_CONTEXT_FILES = [CLAUDE_MD, "AGENTS.md"];
 
-  // Read existing CLAUDE.md
-  if (existsSync(claudeMdPath)) {
-    content = readFileSync(claudeMdPath, "utf-8");
+/** The context files this repo actually has, in preference order. */
+export function existingContextFiles(repoRoot: string): string[] {
+  return AGENT_CONTEXT_FILES.filter((f) => existsSync(join(repoRoot, f)));
+}
+
+/**
+ * The project instructions to feed the narrative model, preferring CLAUDE.md.
+ * A Codex-only repo has just AGENTS.md, and reading only CLAUDE.md there hands
+ * the model nothing.
+ */
+export function readContextFile(repoRoot: string): { filename: string; content: string } | null {
+  for (const filename of AGENT_CONTEXT_FILES) {
+    const path = join(repoRoot, filename);
+    if (!existsSync(path)) continue;
+    try {
+      return { filename, content: readFileSync(path, "utf-8") };
+    } catch {
+      // Unreadable, try the next one
+    }
   }
+  return null;
+}
 
-  // Build the devctx section
+export function updateContextFiles(repoRoot: string, branch: string, state: ProjectState, todos: Todo[]): void {
   const activeTodos = todos.filter((t) => t.status !== "done");
   const devctxSection = builddevctxSection(branch, state, activeTodos);
 
-  // Replace or append the devctx section
-  const startMarker = "<!-- DEVCTX:START -->";
-  const endMarker = "<!-- DEVCTX:END -->";
+  // Update the context files the repo already keeps. A Codex-only project with
+  // just AGENTS.md should not acquire a CLAUDE.md it never asked for, and a
+  // Claude project should not acquire an AGENTS.md. When a repo has neither,
+  // CLAUDE.md is the default.
+  const existing = existingContextFiles(repoRoot);
+  const targets = existing.length > 0 ? existing : [CLAUDE_MD];
 
-  if (content.includes(startMarker) && content.includes(endMarker)) {
-    const before = content.substring(0, content.indexOf(startMarker));
-    const after = content.substring(content.indexOf(endMarker) + endMarker.length);
-    content = before + devctxSection + after;
-  } else {
-    content = content.trimEnd() + "\n\n" + devctxSection + "\n";
+  for (const filename of targets) {
+    const path = join(repoRoot, filename);
+    let content = existsSync(path) ? readFileSync(path, "utf-8") : "";
+
+    // Replace or append the devctx section
+    const startMarker = "<!-- DEVCTX:START -->";
+    const endMarker = "<!-- DEVCTX:END -->";
+
+    // Anchor on the LAST marker pair, not the first. Documentation that
+    // mentions the marker in prose would otherwise be read as the start of the
+    // generated block, and everything from that sentence onward would be
+    // replaced — the file documenting this feature is the likeliest casualty.
+    const endIndex = content.lastIndexOf(endMarker);
+    const startIndex = endIndex === -1 ? -1 : content.lastIndexOf(startMarker, endIndex);
+
+    if (startIndex !== -1 && endIndex !== -1) {
+      const before = content.substring(0, startIndex);
+      const after = content.substring(endIndex + endMarker.length);
+      content = before + devctxSection + after;
+    } else {
+      content = content.trimEnd() + "\n\n" + devctxSection + "\n";
+    }
+
+    writeFileAtomic(path, content);
   }
-
-  writeFileSync(claudeMdPath, content);
 }
 
 function builddevctxSection(branch: string, state: ProjectState, activeTodos: Todo[]): string {
@@ -534,7 +655,7 @@ export function saveSessionRecord(repoRoot: string, content: string): string {
   const dateStr = now.toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "");
   const sessionFile = join(sessionsDir, `${dateStr}.md`);
 
-  writeFileSync(sessionFile, content);
+  writeFileAtomic(sessionFile, content);
   return sessionFile;
 }
 

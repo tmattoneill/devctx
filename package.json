@@ -1,7 +1,7 @@
 {
   "name": "devctx-mcp-server",
   "version": "1.1.1",
-  "description": "Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.",
+  "description": "Project-aware development context tracker for coding agents (Claude Code, Codex). Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md and AGENTS.md.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -12,21 +12,22 @@
   "scripts": {
     "build": "tsc",
     "build:dashboard": "vite build --config src/dashboard/client/vite.config.ts",
-    "build:all": "tsc && vite build --config src/dashboard/client/vite.config.ts",
+    "build:skills": "node scripts/gen-skills.mjs",
+    "build:all": "tsc && vite build --config src/dashboard/client/vite.config.ts && node scripts/gen-skills.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json && tsc --noEmit -p src/dashboard/client/tsconfig.json",
     "start": "node dist/index.js",
     "dashboard": "node dist/dashboard/cli.js",
     "dashboard:dev": "node dist/dashboard/cli.js --dev",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build:all"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
-    "@fastify/static": "^9.0.0",
+    "@fastify/static": "^10.1.3",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "fastify": "^5.7.4",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
     "zod": "^3.24.4"
   },
   "devDependencies": {
@@ -34,8 +35,23 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "typescript": "^5.8.3",
     "vite": "^7.3.1",
     "vitest": "^3.1.4"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "src/dashboard/client/dist",
+    "skills",
+    "slash-commands",
+    "statusline",
+    "util",
+    "docs",
+    "README.md"
+  ]
 }

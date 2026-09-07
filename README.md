@@ -1,10 +1,10 @@
-# devctx — Persistent Memory for Claude Code
+# devctx — Persistent Memory for Coding Agents
 
-Claude Code forgets everything between sessions. Compact the conversation, restart, or come back next week — gone. You re-explain, re-orient, burn tokens rebuilding context that existed five minutes ago.
+Coding agents forget everything between sessions. Compact the conversation, restart, or come back next week and it's gone. You re-explain, re-orient, and burn tokens rebuilding context that existed five minutes ago.
 
-devctx fixes this. It's an MCP server that logs what you do, tracks what's outstanding, and feeds it all back to Claude automatically when you return. Think of it as a save game for your development session.
+devctx fixes this. It's an MCP server that logs what you do, tracks what's outstanding, and feeds it all back automatically when you return. Think of it as a save game for your development session.
 
-**Built with Claude Code. Built for Claude Code.**
+**Works with Claude Code and Codex.** Both speak MCP over stdio, so the same server serves both. Claude Code gets slash commands and a status line; Codex gets skills. The tracked state in `.devctx/` is identical either way.
 
 ## Three problems, one tool
 
@@ -93,17 +93,27 @@ When you have an `ANTHROPIC_API_KEY` set, status and goodbye commands call `clau
 | `devctx_branch_notes` | read | Get per-branch markdown notes |
 | `devctx_branch_notes_save` | write | Save per-branch documentation |
 | `devctx_git` | read/write | Git operations with auto-logging |
-| `devctx_sync` | write | Force sync state → CLAUDE.md |
+| `devctx_sync` | write | Force sync state → CLAUDE.md and AGENTS.md |
 
 Write tools respect the active/paused state. Read tools always work.
 
-## Slash commands
+## Commands
 
-Slash commands are installed automatically by `util/install.sh` as symlinks, so updates propagate on `git pull`. To install manually:
+The same set of workflows ships in both hosts' native format. `util/install.sh` links them as symlinks, so updates propagate on `git pull`.
+
+In Claude Code they are slash commands, invoked as `/devctx-status`:
 
 ```bash
 ln -sf "$PWD/slash-commands"/*.md ~/.claude/commands/
 ```
+
+In Codex they are skills, invoked as `$devctx-status` or fired automatically when your request matches. They are generated from the same source files by `npm run build:skills`, so the two cannot drift:
+
+```bash
+ln -sfn "$PWD/skills"/*/ ~/.agents/skills/
+```
+
+Each one is a thin wrapper around the matching `devctx_*` MCP tool, so you can always call the tools directly instead.
 
 | Command | Purpose |
 |---------|---------|
@@ -129,14 +139,13 @@ cd devctx
 bash util/install.sh
 ```
 
-The installer handles everything in one command:
+The installer detects which agents you have and wires up whichever it finds. It fails only if you have neither.
 
 1. Installs dependencies and builds the project (`npm install && npm run build:all`)
 2. Prompts for MCP registration scope (system-wide or project-only)
 3. Optionally configures your Anthropic API key for AI narrative summaries
-4. Registers the MCP server with `claude mcp add`
-5. Symlinks all 12 slash commands to `~/.claude/commands/`
-6. Adds `mcp__devctx` to your Claude Code permissions
+4. Claude Code: registers with `claude mcp add`, symlinks the 14 slash commands to `~/.claude/commands/`, adds `mcp__devctx` to permissions, and optionally sets up the status line
+5. Codex: registers with `codex mcp add` and symlinks the 13 skills to `~/.agents/skills/`
 
 If Node.js isn't installed, the script detects your platform (macOS/Ubuntu/Fedora/Arch) and offers to install it.
 
@@ -161,30 +170,33 @@ npm run build:all
 Register with Claude Code:
 
 ```bash
-claude mcp add -s user devctx -- node /absolute/path/to/devctx/dist/index.js
-```
-
-To enable AI narrative summaries, add your API key:
-
-```bash
 claude mcp add -s user devctx -e ANTHROPIC_API_KEY=sk-ant-... -- node /absolute/path/to/devctx/dist/index.js
-```
-
-Install slash commands and permissions:
-
-```bash
 ln -sf "$PWD/slash-commands"/*.md ~/.claude/commands/
+claude mcp list        # verify
 ```
 
 Add `mcp__devctx` to the `permissions.allow` array in `~/.claude/settings.json` to avoid per-call prompts.
 
-Verify it's connected:
+Register with Codex:
 
 ```bash
-claude mcp list
+codex mcp add devctx --env ANTHROPIC_API_KEY=sk-ant-... -- node /absolute/path/to/devctx/dist/index.js
+ln -sfn "$PWD/skills"/*/ ~/.agents/skills/
+codex mcp list         # verify
 ```
 
-Without the API key everything works — the summaries just use a deterministic fallback. devctx never modifies source code, runs arbitrary shell commands, or accesses the network (except the optional AI narrative).
+`codex mcp list` shows `Auth: Unsupported` against devctx. That refers to OAuth on the local stdio transport and applies to every stdio server; it does not mean devctx is unsupported.
+
+The API key is optional. Without it everything works and the summaries fall back to a deterministic one built from git history, todos and the activity log; devctx tells you in its output which one you got. The AI path is Anthropic-only by design, so there is one set of prompts to keep working rather than two. devctx never modifies source code, runs arbitrary shell commands, or accesses the network beyond the optional narrative call and Linear sync.
+
+### Linear under Codex
+
+`devctx_linear_sync` needs its own `LINEAR_API_KEY` in the devctx server's environment. Codex's `codex mcp login linear` authenticates Linear's own remote MCP server; devctx calls the Linear GraphQL API directly and cannot reuse that session.
+
+```bash
+codex mcp remove devctx
+codex mcp add devctx --env ANTHROPIC_API_KEY=sk-ant-... --env LINEAR_API_KEY=lin_api_... -- node /absolute/path/to/devctx/dist/index.js
+```
 
 ## Getting started
 

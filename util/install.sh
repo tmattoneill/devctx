@@ -112,7 +112,7 @@ done
 # ─── Header ──────────────────────────────────────────────────────────────────
 
 printf "\n${BOLD}devctx installer${RESET}\n"
-printf "${DIM}Project-aware development context for Claude Code${RESET}\n"
+printf "${DIM}Project-aware development context for Claude Code and Codex${RESET}\n"
 
 # ─── Prerequisite checks ────────────────────────────────────────────────────
 
@@ -243,10 +243,16 @@ if ! command -v npm &>/dev/null; then
   exit 1
 fi
 
-# Claude CLI
-if ! command -v claude &>/dev/null; then
-  error "claude CLI is not installed or not in PATH."
+# Host agents. devctx works with either; we wire up whichever are present.
+HAS_CLAUDE=false
+HAS_CODEX=false
+command -v claude &>/dev/null && HAS_CLAUDE=true
+command -v codex  &>/dev/null && HAS_CODEX=true
+
+if [[ "$HAS_CLAUDE" == false ]] && [[ "$HAS_CODEX" == false ]]; then
+  error "Neither the claude nor the codex CLI is installed or in PATH."
   echo "  Install Claude Code: https://docs.anthropic.com/en/docs/claude-code"
+  echo "  Install Codex:       https://developers.openai.com/codex"
   exit 1
 fi
 
@@ -256,7 +262,10 @@ if [[ ! -f "$PROJECT_ROOT/package.json" ]]; then
   exit 1
 fi
 
-success "  node $(node --version), npm $(npm --version), claude CLI found"
+HOSTS=""
+[[ "$HAS_CLAUDE" == true ]] && HOSTS="claude"
+[[ "$HAS_CODEX"  == true ]] && HOSTS="${HOSTS:+$HOSTS, }codex"
+success "  node $(node --version), npm $(npm --version), hosts: $HOSTS"
 
 # ─── Step 1: Build ───────────────────────────────────────────────────────────
 
@@ -352,9 +361,11 @@ fi
 
 # ─── Step 4: Register MCP server ────────────────────────────────────────────
 
-step "4" "Registering MCP server"
+step "4" "Registering MCP server with Claude Code"
 
-if [[ "$SCOPE" == "skip" ]]; then
+if [[ "$HAS_CLAUDE" == false ]]; then
+  echo "  Skipped (claude CLI not found)"
+elif [[ "$SCOPE" == "skip" ]]; then
   echo "  Skipped"
 else
   # Check for existing registration
@@ -390,9 +401,19 @@ else
   fi
 fi
 
+# ─── Claude Code defaults (used by the summary when those steps are skipped) ──
+
+PERM_RESULT="SKIP:not applicable"
+STATUSLINE_CONFIGURED=false
+TOTAL=0
+SK_TOTAL=0
+
 # ─── Step 5: Install slash commands (symlinks) ──────────────────────────────
 
-step "5" "Installing slash commands"
+step "5" "Installing Claude Code slash commands"
+if [[ "$HAS_CLAUDE" == false ]]; then
+  echo "  Skipped (Claude Code not installed)"
+else
 
 COMMANDS_DIR="$HOME/.claude/commands"
 SLASH_DIR="$PROJECT_ROOT/slash-commands"
@@ -437,10 +458,14 @@ fi
 if [[ $BACKED_UP -gt 0 ]]; then
   warn "  $BACKED_UP existing files backed up to .bak"
 fi
+fi
 
 # ─── Step 6: Configure permissions ──────────────────────────────────────────
 
 step "6" "Configuring permissions"
+if [[ "$HAS_CLAUDE" == false ]]; then
+  echo "  Skipped (Claude Code not installed)"
+else
 
 SETTINGS_FILE="$HOME/.claude/settings.json"
 
@@ -496,10 +521,14 @@ case "$PERM_RESULT" in
   SKIP:*)  echo "  ${PERM_RESULT#SKIP:}" ;;
   WARN:*)  warn "${PERM_RESULT#WARN:}" ;;
 esac
+fi
 
 # ─── Step 7: Status line ──────────────────────────────────────────────────
 
 step "7" "Status line integration"
+if [[ "$HAS_CLAUDE" == false ]]; then
+  echo "  Skipped (Claude Code not installed)"
+else
 
 STATUSLINE_SCRIPT="$PROJECT_ROOT/statusline/devctx-statusline.sh"
 STATUSLINE_CONFIGURED=false
@@ -615,6 +644,101 @@ else
     fi
   fi
 fi
+fi
+
+# ─── Step 8: Register MCP server with Codex ─────────────────────────────────
+
+step "8" "Registering MCP server with Codex"
+
+if [[ "$HAS_CODEX" == false ]]; then
+  echo "  Skipped (codex CLI not found)"
+elif [[ "$SCOPE" == "skip" ]]; then
+  echo "  Skipped"
+else
+  # Codex has no registration scopes; the config is always ~/.codex/config.toml
+  if codex mcp list 2>/dev/null | grep -q "^devctx "; then
+    info "  Removing existing devctx registration..."
+    codex mcp remove devctx &>/dev/null || true
+  fi
+
+  CODEX_CMD=(codex mcp add devctx)
+  if [[ -n "$API_KEY" ]]; then
+    CODEX_CMD+=(--env "ANTHROPIC_API_KEY=$API_KEY")
+  fi
+  CODEX_CMD+=(-- node "$PROJECT_ROOT/dist/index.js")
+
+  if "${CODEX_CMD[@]}" &>/dev/null; then
+    success "  MCP server registered with Codex"
+  else
+    error "Codex MCP registration failed"
+    echo "  You can register manually:"
+    echo "  codex mcp add devctx -- node $PROJECT_ROOT/dist/index.js"
+  fi
+
+  if codex mcp list 2>/dev/null | grep -q "^devctx "; then
+    success "  Verified: devctx appears in 'codex mcp list'"
+  else
+    warn "Registration succeeded but devctx not found in 'codex mcp list'"
+  fi
+fi
+
+# ─── Step 9: Install Codex skills (symlinks) ────────────────────────────────
+
+step "9" "Installing Codex skills"
+
+if [[ "$HAS_CODEX" == false ]]; then
+  echo "  Skipped (codex CLI not found)"
+else
+  # ~/.agents/skills is the cross-host skills root; Cursor and Gemini read it too.
+  SKILLS_DIR="$HOME/.agents/skills"
+  SKILLS_SRC="$PROJECT_ROOT/skills"
+  SK_LINKED=0
+  SK_SKIPPED=0
+  SK_BACKED_UP=0
+
+  if [[ ! -d "$SKILLS_SRC" ]]; then
+    warn "No skills/ directory found. Run: npm run build:skills"
+  else
+    mkdir -p "$SKILLS_DIR"
+
+    for source in "$SKILLS_SRC"/*/; do
+      source="${source%/}"
+      name="$(basename "$source")"
+      target="$SKILLS_DIR/$name"
+
+      # Already a correct symlink
+      if [[ -L "$target" ]] && [[ "$(readlink "$target")" == "$source" ]]; then
+        SK_SKIPPED=$((SK_SKIPPED + 1))
+        continue
+      fi
+
+      # Existing real directory — back it up rather than clobber someone's skill
+      if [[ -d "$target" ]] && [[ ! -L "$target" ]]; then
+        mv "$target" "$target.bak"
+        warn "Backed up existing skill $name to $name.bak"
+        SK_BACKED_UP=$((SK_BACKED_UP + 1))
+      fi
+
+      # Existing symlink pointing elsewhere — replace
+      if [[ -L "$target" ]]; then
+        rm "$target"
+      fi
+
+      ln -sfn "$source" "$target"
+      SK_LINKED=$((SK_LINKED + 1))
+    done
+
+    SK_TOTAL=$((SK_LINKED + SK_SKIPPED))
+    if [[ $SK_LINKED -gt 0 ]]; then
+      success "  $SK_LINKED skills linked ($SK_SKIPPED already current, $SK_TOTAL total)"
+    else
+      success "  All $SK_TOTAL skills already up to date"
+    fi
+    if [[ $SK_BACKED_UP -gt 0 ]]; then
+      warn "  $SK_BACKED_UP existing skills backed up to .bak"
+    fi
+  fi
+fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
@@ -629,8 +753,10 @@ else
   printf "  MCP server:      registered (${SCOPE} scope)\n"
 fi
 
-# Slash commands
-printf "  Slash commands:  %s commands linked\n" "$TOTAL"
+# Slash commands (Claude Code only)
+if [[ "$HAS_CLAUDE" == true ]]; then
+  printf "  Slash commands:  %s commands linked\n" "$TOTAL"
+fi
 
 # AI narratives
 if [[ -n "$API_KEY" ]]; then
@@ -639,20 +765,34 @@ else
   printf "  AI narratives:   ${DIM}disabled (no API key)${RESET}\n"
 fi
 
-# Permissions
-case "$PERM_RESULT" in
-  OK:*|SKIP:*) printf "  Permissions:     mcp__devctx allowed\n" ;;
-  *)           printf "  Permissions:     ${YELLOW}manual config needed${RESET}\n" ;;
-esac
-
-# Status line
-if [[ "$STATUSLINE_CONFIGURED" == true ]]; then
-  printf "  Status line:     enabled\n"
+# Claude Code
+if [[ "$HAS_CLAUDE" == true ]]; then
+  case "$PERM_RESULT" in
+    OK:*|SKIP:*) printf "  Permissions:     mcp__devctx allowed\n" ;;
+    *)           printf "  Permissions:     ${YELLOW}manual config needed${RESET}\n" ;;
+  esac
+  if [[ "$STATUSLINE_CONFIGURED" == true ]]; then
+    printf "  Status line:     enabled\n"
+  else
+    printf "  Status line:     ${DIM}not configured${RESET}\n"
+  fi
 else
-  printf "  Status line:     ${DIM}not configured${RESET}\n"
+  printf "  Claude Code:     ${DIM}not installed, skipped${RESET}\n"
+fi
+
+# Codex
+if [[ "$HAS_CODEX" == true ]]; then
+  printf "  Codex skills:    %s linked in ~/.agents/skills\n" "${SK_TOTAL:-0}"
+else
+  printf "  Codex:           ${DIM}not installed, skipped${RESET}\n"
 fi
 
 echo ""
-printf "  Get started:  ${CYAN}claude${RESET} → ${CYAN}/devctx-init${RESET}\n"
+if [[ "$HAS_CLAUDE" == true ]]; then
+  printf "  Get started:  ${CYAN}claude${RESET} → ${CYAN}/devctx-init${RESET}\n"
+fi
+if [[ "$HAS_CODEX" == true ]]; then
+  printf "  Get started:  ${CYAN}codex${RESET} → ${CYAN}\$devctx-init${RESET}\n"
+fi
 printf "  Update later: ${DIM}git pull && bash util/install.sh${RESET}\n"
 echo ""

@@ -2,7 +2,7 @@
 
 ## Context
 
-This document explains how hooks are implemented and used in the devctx project. Hooks are essential for automatically tracking development activities that occur outside of Claude Code, directly in the terminal. The system implements Git hooks to capture commits, branch switches, merges, and pushes, logging them to the activity log for comprehensive project tracking.
+This document explains how hooks are implemented and used in the devctx project. Hooks are essential for automatically tracking development activities that occur outside your agent, directly in the terminal. The system implements Git hooks to capture commits, branch switches, merges, and pushes, logging them to the activity log for comprehensive project tracking.
 
 ## Implementation Overview
 
@@ -73,7 +73,7 @@ Hooks write directly to `.devctx/activity.log` in JSON format, which is then con
 
 ## Benefits
 
-1. **Automatic Tracking**: Captures Git activities whether they occur through Claude Code or terminal
+1. **Automatic Tracking**: Captures Git activities whether they occur through your agent or the terminal
 2. **Non-Intrusive**: Hooks won't break Git operations even if devctx fails
 3. **Comprehensive**: Covers the full Git workflow (commit, branch, merge, push)
 4. **Consistent**: All activities are logged in the same format regardless of source

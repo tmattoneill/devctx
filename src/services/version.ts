@@ -1,8 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { GitCommit } from "./git.js";
+import { recordAiFailure, clearAiFailure } from "./ai-status.js";
 
-const MODEL = "claude-sonnet-4-20250514";
-const MAX_TOKENS = 400;
+const MODEL = "claude-sonnet-5";
+// Thinking is on by default on Sonnet 5 and draws from max_tokens, so this
+// budget covers the reasoning as well as the one-line JSON answer.
+const EFFORT = "low" as const;
+const MAX_TOKENS = 1500;
 
 export type BumpLevel = "major" | "minor" | "patch";
 
@@ -71,6 +75,7 @@ export async function generateVersionSuggestion(
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
+      output_config: { effort: EFFORT },
       system: VERSION_SYSTEM_PROMPT,
       messages: [
         {
@@ -91,6 +96,7 @@ export async function generateVersionSuggestion(
       const level: BumpLevel = ["major", "minor", "patch"].includes(parsed.level) ? parsed.level : "patch";
       const nextVersion = bumpVersion(currentVersion, level);
 
+      clearAiFailure();
       return {
         level,
         reason: parsed.reason || "Version bump suggested by AI analysis",
@@ -100,8 +106,10 @@ export async function generateVersionSuggestion(
     }
 
     return fallbackVersionSuggestion(commits, currentVersion);
-  } catch {
-    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
+  } catch (error) {
+    // Never write to stderr — that makes Claude Code flag the MCP server as
+    // failed. Record the reason instead so the tool output can report it.
+    recordAiFailure(error);
     return fallbackVersionSuggestion(commits, currentVersion);
   }
 }

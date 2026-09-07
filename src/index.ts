@@ -10,21 +10,24 @@ import {
   logActivity, getRecentActivity, getLastActivityByType,
   getTodos, addTodo, updateTodo, removeTodo, cleanupTodos, normalizeForComparison, isSimilarToAny,
   getBranchNotes, saveBranchNotes, listBranchNotes,
-  updateClaudeMd, updateStatusLineCache,
+  updateContextFiles, updateStatusLineCache,
   isDevctxActive, setDevctxActive, isDevctxInitialized,
   saveSourceTodos, getSourceTodos,
   saveSessionRecord,
-  getLinearConfig, saveLinearConfig,
+  getLinearConfig, saveLinearConfig, markTodoSynced, markTodoSyncFailed,
+  readContextFile, existingContextFiles,
 } from "./shared/index.js";
-import { fetchViewerAndTeams, syncWithLinear, updateLinearIssue } from "./services/linear.js";
+import { fetchViewerAndTeams, syncWithLinear, pushLinkedTodo } from "./services/linear.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
 import { buildDashboard } from "./services/dashboard.js";
 import { generateNarrative, generateGoodbyeSummary } from "./services/narrative.js";
+import { aiStatusBanner } from "./services/ai-status.js";
 import { getCurrentVersion, bumpVersion, generateVersionSuggestion, fallbackVersionSuggestion } from "./services/version.js";
 import { scanProject, formatScanReport, generateAutoDescription, scanSourceTodos, formatSourceTodos } from "./services/scanner.js";
 import { installHooks } from "./services/hooks.js";
 import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 // --- Resolve project root ---
 
@@ -66,7 +69,7 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
 
 /** Sync both CLAUDE.md and status line cache in one call */
 function syncSideEffects(repoRoot: string, branch: string, state: ReturnType<typeof getProjectState>, todos: ReturnType<typeof getTodos>): void {
-  updateClaudeMd(repoRoot, branch, state, todos);
+  updateContextFiles(repoRoot, branch, state, todos);
   updateStatusLineCache(repoRoot, branch);
 }
 
@@ -110,7 +113,7 @@ function autoSessionStart(repoRoot: string): void {
     lines.push(`${suggested.length} suggested todo(s) from last session — run \`devctx_todo_list\` to review.`);
   }
 
-  lines.push(`Use \`/devctx-goodbye\` when you're done to save session context.`);
+  lines.push(`Run \`devctx-goodbye\` when you're done to save session context.`);
   pendingGreeting = lines.join("\n");
 }
 
@@ -130,9 +133,15 @@ function withGreeting<T extends { content: Array<{ type: "text"; text: string }>
 
 // --- Server ---
 
+// Read from package.json so the version reported over MCP cannot drift from
+// the published one.
+const pkg = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf-8"),
+) as { version: string };
+
 const server = new McpServer({
   name: "devctx-mcp-server",
-  version: "1.0.0",
+  version: pkg.version,
 });
 
 // ============================================================
@@ -180,11 +189,11 @@ server.registerTool(
   "devctx_update_focus",
   {
     title: "Update Project Focus",
-    description: `Update what you're currently working on. This sets the "current focus" shown in whereami and optionally updates the project description. Also syncs to CLAUDE.md so future Claude Code sessions pick up the context.`,
+    description: `Update what you're currently working on. This sets the "current focus" shown in whereami and optionally updates the project description. Also syncs to CLAUDE.md (and AGENTS.md when present) so future sessions pick up the context.`,
     inputSchema: {
       focus: z.string().min(1).max(500).describe("What you're currently working on"),
       description: z.string().max(1000).optional().describe("Optional project description update"),
-      sync_claude_md: z.boolean().default(true).describe("Whether to update CLAUDE.md with the new focus"),
+      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present) with the new focus"),
     },
     annotations: {
       readOnlyHint: false,
@@ -193,7 +202,7 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ focus, description, sync_claude_md }) => {
+  async ({ focus, description, sync_context }) => {
     const repoRoot = resolveRepoRoot();
     autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
@@ -210,7 +219,7 @@ server.registerTool(
       branch,
     });
 
-    if (sync_claude_md) {
+    if (sync_context) {
       const todos = getTodos(repoRoot);
       syncSideEffects(repoRoot, branch, state, todos);
     } else {
@@ -218,7 +227,7 @@ server.registerTool(
     }
 
     return {
-      content: [{ type: "text", text: `✅ Focus updated: **${focus}**\n\nThis will be shown in \`devctx_whereami\` and ${sync_claude_md ? "has been synced to CLAUDE.md" : "was NOT synced to CLAUDE.md"}.` }],
+      content: [{ type: "text", text: `✅ Focus updated: **${focus}**\n\nThis will be shown in \`devctx_whereami\` and ${sync_context ? "has been synced to your project context files" : "was NOT synced to your project context files"}.` }],
     };
   }
 );
@@ -310,13 +319,13 @@ server.registerTool(
   "devctx_todo_add",
   {
     title: "Add Todo",
-    description: `Add a new todo item. Todos can be scoped to a branch, prioritized, and tagged. They appear in whereami and can be synced to CLAUDE.md.`,
+    description: `Add a new todo item. Todos can be scoped to a branch, prioritized, and tagged. They appear in whereami and can be synced to CLAUDE.md (and AGENTS.md when present).`,
     inputSchema: {
       text: z.string().min(1).max(500).describe("The todo item text"),
       priority: z.enum(["low", "medium", "high", "critical"]).default("medium").describe("Priority level"),
       branch: z.string().optional().describe("Scope todo to a specific branch (defaults to current)"),
       tags: z.array(z.string()).optional().describe("Optional tags for categorization"),
-      sync_claude_md: z.boolean().default(true).describe("Whether to update CLAUDE.md"),
+      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present)"),
     },
     annotations: {
       readOnlyHint: false,
@@ -325,7 +334,7 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ text, priority, branch, tags, sync_claude_md }) => {
+  async ({ text, priority, branch, tags, sync_context }) => {
     const repoRoot = resolveRepoRoot();
     autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
@@ -340,7 +349,7 @@ server.registerTool(
       branch: currentBranch,
     });
 
-    if (sync_claude_md) {
+    if (sync_context) {
       const state = getProjectState(repoRoot);
       const todos = getTodos(repoRoot);
       syncSideEffects(repoRoot, currentBranch, state, todos);
@@ -368,7 +377,8 @@ server.registerTool(
       text: z.string().max(500).optional().describe("Updated text"),
       priority: z.enum(["low", "medium", "high", "critical"]).optional().describe("Updated priority"),
       tags: z.array(z.string()).optional().describe("Updated tags"),
-      sync_claude_md: z.boolean().default(true).describe("Whether to update CLAUDE.md"),
+      promote: z.boolean().optional().describe("Mark an AI-suggested todo as one you own. Suggested todos are never pushed to Linear until promoted."),
+      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present)"),
       sync_linear: z.boolean().default(true).describe("Whether to push status/priority changes to Linear if the todo has a linearId and LINEAR_API_KEY is set"),
     },
     annotations: {
@@ -378,7 +388,7 @@ server.registerTool(
       openWorldHint: false,
     },
   },
-  async ({ id, status, text, priority, tags, sync_claude_md, sync_linear }) => {
+  async ({ id, status, text, priority, tags, promote, sync_context, sync_linear }) => {
     const repoRoot = resolveRepoRoot();
     autoSessionStart(repoRoot);
     const paused = guardActive(repoRoot);
@@ -389,13 +399,35 @@ server.registerTool(
     if (text) updates.text = text;
     if (priority) updates.priority = priority;
     if (tags) updates.tags = tags;
+    if (promote) updates.source = "manual";
 
     const todo = updateTodo(repoRoot, id, updates);
     if (!todo) {
       return { content: [{ type: "text", text: `❌ Todo \`${id}\` not found.` }], isError: true };
     }
 
-    if (sync_claude_md) {
+    // Push to Linear before reporting back. This is awaited on purpose: marking
+    // a todo done is supposed to close its Linear issue, and a fire-and-forget
+    // push would report success here whether or not that actually happened.
+    let linearNote = "";
+    if (sync_linear && todo.linearId && process.env.LINEAR_API_KEY) {
+      try {
+        await pushLinkedTodo(repoRoot, process.env.LINEAR_API_KEY, todo);
+        markTodoSynced(repoRoot, todo.id);
+        const ref = todo.linearIdentifier ?? "the linked Linear issue";
+        linearNote = todo.status === "done"
+          ? `\n🔗 Closed ${ref} in Linear.`
+          : `\n🔗 Synced ${ref} to Linear (${todo.status}).`;
+      } catch (error) {
+        // The local update stands; only the push failed. Record it so
+        // devctx_todo_list keeps showing the todo as out of sync.
+        const detail = error instanceof Error ? error.message : String(error);
+        markTodoSyncFailed(repoRoot, todo.id, detail);
+        linearNote = `\n⚠️ Linear sync failed: ${detail}`;
+      }
+    }
+
+    if (sync_context) {
       const state = getProjectState(repoRoot);
       const todos = getTodos(repoRoot);
       const branch = getCurrentBranch(repoRoot);
@@ -404,23 +436,8 @@ server.registerTool(
       updateStatusLineCache(repoRoot, getCurrentBranch(repoRoot));
     }
 
-    // Fire-and-forget push to Linear if todo has a linearId
-    if (sync_linear && todo.linearId && process.env.LINEAR_API_KEY) {
-      const config = getLinearConfig(repoRoot);
-      if (config) {
-        const linearPriorityMap: Record<string, number> = { critical: 1, high: 2, medium: 3, low: 4 };
-        const linearUpdates: Record<string, unknown> = {};
-        if (priority) linearUpdates.priority = linearPriorityMap[todo.priority] ?? 3;
-        if (text) linearUpdates.title = todo.text;
-        // Push async, don't await — never block the response
-        updateLinearIssue(process.env.LINEAR_API_KEY, todo.linearId, linearUpdates).then(() => {
-          updateTodo(repoRoot, todo.id, { linearSyncedAt: new Date().toISOString() });
-        }).catch(() => { /* best effort */ });
-      }
-    }
-
     return {
-      content: [{ type: "text", text: `✅ Todo \`${id}\` updated: **${todo.text}** → ${todo.status}` }],
+      content: [{ type: "text", text: `✅ Todo \`${id}\` updated: **${todo.text}** → ${todo.status}${linearNote}` }],
     };
   }
 );
@@ -561,8 +578,8 @@ server.registerTool(
 server.registerTool(
   "devctx_sync",
   {
-    title: "Sync to CLAUDE.md",
-    description: `Force a sync of the current devctx state (focus, todos, branch info) into CLAUDE.md. This updates the auto-managed section between the CLAUDETTE markers.`,
+    title: "Sync project context files",
+    description: `Force a sync of the current devctx state (focus, todos, branch info) into CLAUDE.md, and into AGENTS.md when the repo keeps one. This updates the auto-managed section between the devctx markers.`,
     inputSchema: {},
     annotations: {
       readOnlyHint: false,
@@ -583,7 +600,7 @@ server.registerTool(
     syncSideEffects(repoRoot, branch, state, todos);
 
     return {
-      content: [{ type: "text", text: `✅ CLAUDE.md synced with current devctx state.\nBranch: \`${branch}\` | Focus: ${state.currentFocus || "(not set)"} | Active todos: ${todos.filter((t) => t.status !== "done").length}` }],
+      content: [{ type: "text", text: `✅ Project context synced.\nBranch: \`${branch}\` | Focus: ${state.currentFocus || "(not set)"} | Active todos: ${todos.filter((t) => t.status !== "done").length}` }],
     };
   }
 );
@@ -598,7 +615,7 @@ server.registerTool(
     description: `Initialize devctx for the current directory. Handles all scenarios:
 - Empty directory: creates git repo, .devctx structure, initial commit
 - Files but no git: initializes git, scans project, creates .devctx, initial commit
-- Existing git repo: scans project, creates .devctx, syncs to CLAUDE.md
+- Existing git repo: scans project, creates .devctx, syncs to CLAUDE.md (and AGENTS.md when present)
 - Already initialized: shows current state (use force to re-scan and update)
 
 Auto-detects: language, frameworks, build tools, CI/CD, infra, package metadata.
@@ -732,7 +749,7 @@ Safe to run multiple times — won't overwrite existing data without force flag.
     if (scan.environment !== "empty" || focus) {
       const todos = getTodos(repoRoot);
       syncSideEffects(repoRoot, branch, state, todos);
-      output.push("  ✅ CLAUDE.md updated");
+      output.push("  ✅ Project context updated");
     }
 
     // ── Step 9: Build the report ──
@@ -789,7 +806,7 @@ Safe to run multiple times — won't overwrite existing data without force flag.
     report.push("");
     report.push("---");
     report.push("");
-    report.push("✅ Ready. Use `/devctx-status` for the full dashboard or `/devctx-whereami` for project context.");
+    report.push("✅ Ready. Run `devctx-status` for the full dashboard or `devctx-whereami` for project context.");
 
     return {
       content: [{ type: "text", text: report.join("\n") }],
@@ -804,7 +821,7 @@ server.registerTool(
   "devctx_stop",
   {
     title: "Pause devctx Tracking",
-    description: `Pause devctx for the current project. When paused, all write operations (logging, todos, focus updates, CLAUDE.md sync) are disabled. Read operations (whereami, git_summary, viewing todos/activity) still work. Existing data is preserved. Use devctx_start to resume.`,
+    description: `Pause devctx for the current project. When paused, all write operations (logging, todos, focus updates, context file sync) are disabled. Read operations (whereami, git_summary, viewing todos/activity) still work. Existing data is preserved. Use devctx_start to resume.`,
     inputSchema: {},
     annotations: {
       readOnlyHint: false,
@@ -835,7 +852,7 @@ server.registerTool(
   "devctx_start",
   {
     title: "Resume devctx Tracking",
-    description: `Resume devctx tracking after it was paused with devctx_stop. Re-enables all write operations (logging, todos, focus updates, CLAUDE.md sync).`,
+    description: `Resume devctx tracking after it was paused with devctx_stop. Re-enables all write operations (logging, todos, focus updates, context file sync).`,
     inputSchema: {},
     annotations: {
       readOnlyHint: false,
@@ -995,12 +1012,10 @@ server.registerTool(
       repoRoot,
     });
 
-    const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
-
     return withGreeting({
       content: [{
         type: "text",
-        text: `# 📋 Project Summary — ${state.projectName}\n${hasApiKey ? "" : "*(deterministic fallback — set ANTHROPIC_API_KEY for AI narrative)*\n"}\n${narrative}`,
+        text: `# 📋 Project Summary — ${state.projectName}\n${aiStatusBanner()}\n${narrative}`,
       }],
     });
   }
@@ -1367,12 +1382,8 @@ server.registerTool(
       const branchNotes = getBranchNotes(repoRoot, status.branch);
       const lastPush = getLastPush(repoRoot);
 
-      // Read CLAUDE.md
-      let claudeMdContent = "";
-      const claudeMdPath = join(repoRoot, "CLAUDE.md");
-      if (existsSync(claudeMdPath)) {
-        try { claudeMdContent = readFileSync(claudeMdPath, "utf-8"); } catch { /* skip */ }
-      }
+      // Read the project's agent context file, whichever it has
+      const contextFile = readContextFile(repoRoot);
 
       // Calculate session duration
       const sessionStarts = recentActivity.filter(a => a.type === "session_start");
@@ -1417,7 +1428,8 @@ server.registerTool(
         branchNotes,
         lastPush,
         repoRoot,
-        claudeMdContent,
+        projectInstructions: contextFile?.content ?? "",
+        projectInstructionsFile: contextFile?.filename ?? "CLAUDE.md",
         userMessage,
         sessionDuration,
         commitCount,
@@ -1481,7 +1493,9 @@ server.registerTool(
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
       syncSideEffects(repoRoot, branch, updatedState, updatedTodos);
-      const committed = commitFiles(repoRoot, ["CLAUDE.md"], "devctx: session goodbye");
+      // Commit every context file that exists, not just CLAUDE.md — syncSideEffects
+      // has just rewritten AGENTS.md too where the repo keeps one.
+      const committed = commitFiles(repoRoot, existingContextFiles(repoRoot), "devctx: session goodbye");
       if (committed) {
         try { gitPush(repoRoot); } catch { /* best effort — offline is fine */ }
       }
@@ -1597,7 +1611,10 @@ If LINEAR_API_KEY is not set, returns a helpful error explaining how to configur
             "To use Linear sync, add your Linear API key to the devctx MCP server environment:",
             "",
             "1. Get your API key from Linear → Settings → API → Personal API keys",
-            "2. Add it to your Claude Code MCP config (`~/.claude/settings.json`):",
+            "",
+            "2. Add it to the devctx server's environment.",
+            "",
+            "   **Claude Code** — `~/.claude/settings.json`:",
             "```json",
             `{`,
             `  "mcpServers": {`,
@@ -1607,7 +1624,17 @@ If LINEAR_API_KEY is not set, returns a helpful error explaining how to configur
             `  }`,
             `}`,
             "```",
-            "3. Restart Claude Code and run `devctx_linear_sync` with `configure=true`",
+            "",
+            "   **Codex** — re-register the server with the key:",
+            "```bash",
+            "codex mcp remove devctx",
+            `codex mcp add devctx --env LINEAR_API_KEY=lin_api_... -- node "${process.argv[1]}"`,
+            "```",
+            "",
+            "3. Restart your agent, then run `devctx_linear_sync` with `configure=true`",
+            "",
+            "Note: Codex's `codex mcp login linear` authenticates Linear's own remote MCP server.",
+            "devctx calls the Linear GraphQL API directly and cannot reuse that session, so it needs its own key.",
           ].join("\n"),
         }],
         isError: true,
@@ -1737,6 +1764,10 @@ If LINEAR_API_KEY is not set, returns a helpful error explaining how to configur
         `- Updated: **${result.updated}** issue(s)`,
       ];
 
+      if (result.skipped > 0) {
+        lines.push(`- Skipped: **${result.skipped}** AI-suggested todo(s) — promote one with \`devctx_todo_update promote=true\` before it will push`);
+      }
+
       if (result.errors.length > 0) {
         lines.push("", `⚠️ **${result.errors.length} error(s):**`);
         for (const e of result.errors) {
@@ -1775,35 +1806,41 @@ server.registerTool(
   },
   async () => {
     const help = [
-      "# devctx — Slash Commands",
+      "# devctx — Commands",
       "",
       "| Command | What it does |",
       "|---------|-------------|",
-      "| `/devctx-init` | Initialize devctx for the current project. Detects language, framework, sets up tracking. |",
-      "| `/devctx-whereami` | Full overview — branch, focus, recent commits, todos, activity. |",
-      "| `/devctx-status` | Dashboard view — vitals, branches, todos, last actions, AI recap. |",
-      "| `/devctx-summary` | AI-generated narrative summary of the project state. |",
-      "| `/devctx-focus` | Update what you're currently working on. Text after the command becomes the focus. |",
-      "| `/devctx-todos` | List todos. Also handles adding, updating, or removing if you say so. |",
-      "| `/devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash. |",
-      "| `/devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
-      "| `/devctx-version` | Semantic versioning — AI-suggested bump level, creates annotated git tags, pushes to remote. |",
-      "| `/devctx-linear` | Sync Linear issues with devctx todos (configure, pull, push). Requires LINEAR_API_KEY. |",
-      "| `/devctx-start` | Resume tracking (happens automatically on new sessions). |",
-      "| `/devctx-stop` | Pause tracking manually. Read-only tools still work. |",
-      "| `/devctx-help` | This help screen. |",
+      "| `devctx-init` | Initialize devctx for the current project. Detects language, framework, sets up tracking. |",
+      "| `devctx-whereami` | Full overview — branch, focus, recent commits, todos, activity. |",
+      "| `devctx-status` | Dashboard view — vitals, branches, todos, last actions, AI recap. |",
+      "| `devctx-summary` | AI-generated narrative summary of the project state. |",
+      "| `devctx-focus` | Update what you're currently working on. Text after the command becomes the focus. |",
+      "| `devctx-todos` | List todos. Also handles adding, updating, or removing if you say so. |",
+      "| `devctx-git` | Git operations with auto-logging, or read-only summary. Supports commit, push, pull, checkout, merge, stash. |",
+      "| `devctx-goodbye` | End-of-session wrap-up. Saves an AI summary, suggests todos, pauses tracking. |",
+      "| `devctx-version` | Semantic versioning — AI-suggested bump level, creates annotated git tags, pushes to remote. |",
+      "| `devctx-linear` | Sync Linear issues with devctx todos (configure, pull, push). Requires LINEAR_API_KEY. |",
+      "| `devctx-start` | Resume tracking (happens automatically on new sessions). |",
+      "| `devctx-stop` | Pause tracking manually. Read-only tools still work. |",
+      "| `devctx-help` | This help screen. |",
+      "",
+      "## Invoking these",
+      "",
+      "In Claude Code they are slash commands: `/devctx-status`.",
+      "In Codex they are skills: type `$devctx-status`, or just describe what you want and the matching skill fires.",
+      "Either way each one is a thin wrapper that calls the matching `devctx_*` MCP tool, so you can always call the tools directly instead.",
       "",
       "## How it works",
       "",
-      "devctx tracks project context in a `.devctx/` directory (gitignored) and syncs key info to `CLAUDE.md`.",
+      "devctx tracks project context in a `.devctx/` directory (gitignored) and syncs key info to `CLAUDE.md`, and to `AGENTS.md` when your repo keeps one.",
       "Git hooks capture commits, branch switches, merges, and pushes from any terminal.",
-      "On new sessions, tracking resumes automatically and Claude greets you with project context.",
-      "Use `/devctx-goodbye` when you're done to save a session record for next time.",
+      "On new sessions, tracking resumes automatically and your agent greets you with project context.",
+      "Run `devctx-goodbye` when you're done to save a session record for next time.",
       "",
       "## Tips",
       "",
-      "- `/devctx-status` is the best single command for getting oriented.",
-      "- After `/devctx-goodbye`, suggested todos carry forward to the next session.",
+      "- `devctx-status` is the best single command for getting oriented.",
+      "- After `devctx-goodbye`, suggested todos carry forward to the next session.",
       "- Use `devctx_git` for git operations — it auto-logs to the activity feed. Git hooks also capture activity from regular terminal use.",
       "- Branch notes (`devctx_branch_notes_save`) are great for documenting what a branch is for.",
     ].join("\n");

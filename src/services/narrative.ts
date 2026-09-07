@@ -2,10 +2,15 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { GitCommit, GitStatus, BranchInfo } from "./git.js";
 import type { ProjectState, Todo, ActivityEntry, SourceTodo } from "../shared/types.js";
 import { getLatestSessionContent } from "../shared/data.js";
+import { recordAiFailure, clearAiFailure, aiFallbackNote } from "./ai-status.js";
 
-const MODEL = "claude-sonnet-4-20250514";
-const MAX_TOKENS = 600;
-const GOODBYE_MAX_TOKENS = 1200;
+const MODEL = "claude-sonnet-5";
+// Thinking is on by default on Sonnet 5 and draws from max_tokens, so these
+// budgets cover the reasoning as well as the prose. Effort is pinned low
+// because both prompts ask for a short, factual summary.
+const EFFORT = "low" as const;
+const MAX_TOKENS = 2000;
+const GOODBYE_MAX_TOKENS = 4000;
 
 // ── Narrative context (status dashboard) ─────────────────────
 
@@ -138,6 +143,7 @@ export async function generateNarrative(ctx: NarrativeContext): Promise<string> 
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
+      output_config: { effort: EFFORT },
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -149,12 +155,15 @@ export async function generateNarrative(ctx: NarrativeContext): Promise<string> 
 
     const textBlock = response.content.find(b => b.type === "text");
     if (textBlock && textBlock.type === "text") {
+      clearAiFailure();
       return textBlock.text;
     }
 
     return generateFallbackNarrative(ctx);
-  } catch {
-    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
+  } catch (error) {
+    // Never write to stderr — that makes Claude Code flag the MCP server as
+    // failed. Record the reason instead so the tool output can report it.
+    recordAiFailure(error);
     return generateFallbackNarrative(ctx);
   }
 }
@@ -221,7 +230,7 @@ function generateFallbackNarrative(ctx: NarrativeContext): string {
   }
 
   lines.push("");
-  lines.push("ℹ️ Set ANTHROPIC_API_KEY for AI-generated narratives.");
+  lines.push(aiFallbackNote("narratives"));
 
   return lines.join("\n");
 }
@@ -229,7 +238,8 @@ function generateFallbackNarrative(ctx: NarrativeContext): string {
 // ── Goodbye context + summary ────────────────────────────────
 
 export interface GoodbyeContext extends NarrativeContext {
-  claudeMdContent: string;
+  projectInstructions: string;
+  projectInstructionsFile: string;
   userMessage?: string;
   sessionDuration?: string;
   commitCount: number;
@@ -366,10 +376,10 @@ function buildGoodbyePrompt(ctx: GoodbyeContext): string {
     }
   }
 
-  // CLAUDE.md excerpt
-  if (ctx.claudeMdContent) {
-    parts.push("CLAUDE.md (project instructions):");
-    parts.push(ctx.claudeMdContent.slice(0, 1500));
+  // Project instructions excerpt, from whichever context file this repo has
+  if (ctx.projectInstructions) {
+    parts.push(`${ctx.projectInstructionsFile} (project instructions):`);
+    parts.push(ctx.projectInstructions.slice(0, 1500));
     parts.push("");
   }
 
@@ -423,6 +433,7 @@ export async function generateGoodbyeSummary(ctx: GoodbyeContext): Promise<Goodb
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: GOODBYE_MAX_TOKENS,
+      output_config: { effort: EFFORT },
       system: GOODBYE_SYSTEM_PROMPT,
       messages: [
         {
@@ -436,12 +447,13 @@ export async function generateGoodbyeSummary(ctx: GoodbyeContext): Promise<Goodb
     if (textBlock && textBlock.type === "text") {
       const todos = extractTodosFromResponse(textBlock.text);
       const narrative = stripJsonBlock(textBlock.text);
+      clearAiFailure();
       return { narrative, todos };
     }
 
     return generateFallbackGoodbye(ctx);
-  } catch {
-    // Silently fall back — stderr writes cause Claude Code to flag the MCP server as failed
+  } catch (error) {
+    recordAiFailure(error);
     return generateFallbackGoodbye(ctx);
   }
 }
@@ -500,7 +512,7 @@ function generateFallbackGoodbye(ctx: GoodbyeContext): GoodbyeResult {
   }
 
   lines.push("");
-  lines.push("*ℹ️ Set ANTHROPIC_API_KEY for AI-generated session summaries.*");
+  lines.push(`*${aiFallbackNote("session summaries")}*`);
 
   return { narrative: lines.join("\n"), todos };
 }

@@ -119,7 +119,8 @@ export function formatTodoList(todos: Todo[], branch?: string): string {
         const tags = t.tags?.length ? ` [${t.tags.join(", ")}]` : "";
         const suggestedTag = t.source === "suggested" ? " [suggested]" : "";
         const linearTag = t.linearIdentifier ? ` [${t.linearIdentifier}]` : "";
-        lines.push(`- ${priorityIcon} **${t.text}**${suggestedTag}${linearTag}${tags} — \`${t.id}\``);
+        const syncTag = t.linearSyncError ? " [linear sync failed]" : "";
+        lines.push(`- ${priorityIcon} **${t.text}**${suggestedTag}${linearTag}${syncTag}${tags} — \`${t.id}\``);
       }
       lines.push("");
     }

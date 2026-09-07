@@ -3,6 +3,8 @@ name: devctx-goodbye
 description: "End-of-session wrap-up: handle uncommitted work, save an AI session summary, suggest follow-up todos and pause tracking. Use when the user says they are done, wrapping up or signing off."
 ---
 
+<!-- Generated from slash-commands/devctx-goodbye.md by scripts/gen-skills.mjs. Do not edit. -->
+
 End-of-session wrap-up. Before calling the goodbye tool, handle any uncommitted changes:
 
 1. Run `git status` to check for uncommitted changes (staged, modified, or untracked files).

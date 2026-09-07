@@ -1,4 +1,9 @@
-Help me set up the devctx status line for Claude Code. The devctx MCP server writes a `.devctx/statusline.json` cache file that a status line script reads to show project context in the terminal.
+---
+name: devctx-statusline
+description: "Set up the devctx status line. Claude Code only; Codex has no status line."
+---
+
+Set up the devctx status line. This is a Claude Code feature only; Codex has no status line. The devctx MCP server writes a `.devctx/statusline.json` cache file that a status line script reads to show project context in the terminal.
 
 **What to do:**
 

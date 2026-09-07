@@ -1,5 +1,5 @@
 import type { Todo, LinearConfig } from "../shared/types.js";
-import { getTodos, updateTodo, addTodo } from "../shared/data.js";
+import { getTodos, updateTodo, addTodo, markTodoSynced, getLinearConfig, saveLinearConfig } from "../shared/data.js";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 
@@ -135,6 +135,45 @@ export async function fetchAssignedIssues(apiKey: string, teamId: string, userId
   return data.issues.nodes;
 }
 
+// --- Fetch specific issues by ID ---
+
+/**
+ * Look up issues by ID whatever their state.
+ *
+ * fetchAssignedIssues filters completed and canceled issues out, so an issue
+ * closed in Linear simply stops appearing rather than arriving with a done
+ * state. Without this the local todo would stay open forever.
+ */
+export async function fetchIssuesByIds(apiKey: string, issueIds: string[]): Promise<LinearIssue[]> {
+  if (issueIds.length === 0) return [];
+
+  const query = `
+    query IssuesByIds($ids: [ID!]!) {
+      issues(filter: { id: { in: $ids } }) {
+        nodes {
+          id
+          identifier
+          title
+          url
+          priority
+          updatedAt
+          state {
+            id
+            name
+            type
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await linearRequest<{
+    issues: { nodes: LinearIssue[] };
+  }>(apiKey, query, { ids: issueIds });
+
+  return data.issues.nodes;
+}
+
 // --- Create Linear issue ---
 
 export async function createLinearIssue(
@@ -253,12 +292,88 @@ function priorityToLinear(priority: Todo["priority"]): number {
   }
 }
 
+// --- Workflow state resolution ---
+
+export type StateIdMap = Record<Todo["status"], string | null>;
+
+/**
+ * Resolve this team's workflow state IDs, one per devctx status.
+ *
+ * Cached on the config so devctx_todo_update can close a Linear issue without
+ * first listing every team. A full sync passes refresh so a renamed or deleted
+ * workflow state cannot leave a stale ID behind.
+ */
+export async function resolveStateIds(
+  repoRoot: string,
+  apiKey: string,
+  config: LinearConfig,
+  opts: { refresh?: boolean } = {},
+): Promise<StateIdMap> {
+  const statuses: Todo["status"][] = ["todo", "in_progress", "done", "blocked"];
+
+  if (!opts.refresh && config.stateIds) {
+    const cached = config.stateIds;
+    if (statuses.every(status => cached[status])) {
+      return {
+        todo: cached.todo ?? null,
+        in_progress: cached.in_progress ?? null,
+        done: cached.done ?? null,
+        blocked: cached.blocked ?? null,
+      };
+    }
+  }
+
+  const viewer = await fetchViewerAndTeams(apiKey);
+  const team = viewer.teams.find(t => t.id === config.teamId);
+  if (!team) {
+    throw new Error(`Linear team ${config.teamKey} (${config.teamId}) is no longer visible to this API key`);
+  }
+
+  const resolved = {} as StateIdMap;
+  const toPersist: Partial<Record<Todo["status"], string>> = {};
+  for (const status of statuses) {
+    const id = findStateId(team.states, config.statusMap, status);
+    resolved[status] = id;
+    if (id) toPersist[status] = id;
+  }
+
+  saveLinearConfig(repoRoot, { ...config, stateIds: toPersist });
+  return resolved;
+}
+
+/**
+ * Push one linked todo's current state to Linear.
+ *
+ * Sends the whole todo rather than only the fields that changed, so marking
+ * something done here closes the issue there. Used by devctx_todo_update.
+ */
+export async function pushLinkedTodo(repoRoot: string, apiKey: string, todo: Todo): Promise<void> {
+  if (!todo.linearId) return;
+
+  const config = getLinearConfig(repoRoot);
+  if (!config) throw new Error("Linear is not configured for this project");
+
+  const stateIds = await resolveStateIds(repoRoot, apiKey, config);
+  const stateId = stateIds[todo.status];
+  if (!stateId) {
+    throw new Error(`No Linear workflow state maps to "${todo.status}"`);
+  }
+
+  await updateLinearIssue(apiKey, todo.linearId, {
+    stateId,
+    priority: priorityToLinear(todo.priority),
+    title: todo.text,
+  });
+}
+
 // --- Sync result ---
 
 export interface SyncResult {
   pulled: number;
   pushed: number;
   updated: number;
+  /** Unlinked todos deliberately not pushed (currently: AI-suggested ones) */
+  skipped: number;
   errors: string[];
 }
 
@@ -271,7 +386,7 @@ export async function syncWithLinear(
   direction: "both" | "pull" | "push",
   branch: string
 ): Promise<SyncResult> {
-  const result: SyncResult = { pulled: 0, pushed: 0, updated: 0, errors: [] };
+  const result: SyncResult = { pulled: 0, pushed: 0, updated: 0, skipped: 0, errors: [] };
 
   const userId = config.userId;
   if (!userId) {
@@ -289,7 +404,6 @@ export async function syncWithLinear(
   }
 
   const todos = getTodos(repoRoot);
-  const now = new Date().toISOString();
 
   // --- PULL: Linear → devctx ---
   if (direction === "both" || direction === "pull") {
@@ -301,10 +415,7 @@ export async function syncWithLinear(
       if (existing) {
         // Update if Linear is newer than our last sync
         if (!existing.linearSyncedAt || issue.updatedAt > existing.linearSyncedAt) {
-          updateTodo(repoRoot, existing.id, {
-            status: newStatus,
-            linearSyncedAt: now,
-          });
+          markTodoSynced(repoRoot, existing.id, { status: newStatus });
           result.updated++;
         }
       } else {
@@ -317,14 +428,38 @@ export async function syncWithLinear(
           undefined,
           "linear"
         );
-        updateTodo(repoRoot, newTodo.id, {
+        markTodoSynced(repoRoot, newTodo.id, {
           status: newStatus,
           linearId: issue.id,
           linearUrl: issue.url,
           linearIdentifier: issue.identifier,
-          linearSyncedAt: now,
         });
         result.pulled++;
+      }
+    }
+
+    // Issues completed or canceled in Linear are filtered out of the query
+    // above, so they vanish rather than arriving as done. Look up the linked
+    // todos that went missing and take their real state.
+    const openIds = new Set(linearIssues.map(i => i.id));
+    const strandedIds = todos
+      .filter(t => t.linearId && !openIds.has(t.linearId) && t.status !== "done")
+      .map(t => t.linearId as string);
+
+    if (strandedIds.length > 0) {
+      try {
+        for (const issue of await fetchIssuesByIds(apiKey, strandedIds)) {
+          const local = todos.find(t => t.linearId === issue.id);
+          if (!local) continue;
+
+          const newStatus = linearStateToDEvctxStatus(issue.state.type);
+          if (newStatus !== local.status) {
+            markTodoSynced(repoRoot, local.id, { status: newStatus });
+            result.updated++;
+          }
+        }
+      } catch (err) {
+        result.errors.push(`Failed to reconcile closed Linear issues: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -334,22 +469,38 @@ export async function syncWithLinear(
 
   // --- PUSH: devctx → Linear ---
   if (direction === "both" || direction === "push") {
-    // Build team states lookup
-    let teamStates: Array<{ id: string; name: string; type: string }> = [];
+    // Refresh rather than trust the cache: a workflow state renamed or deleted
+    // in Linear would otherwise leave a stale ID that fails every push.
+    let stateIds: StateIdMap;
     try {
-      const viewer = await fetchViewerAndTeams(apiKey);
-      const team = viewer.teams.find(t => t.id === config.teamId);
-      teamStates = team?.states ?? [];
+      stateIds = await resolveStateIds(repoRoot, apiKey, config, { refresh: true });
     } catch (err) {
-      result.errors.push(`Failed to fetch team states for push: ${err instanceof Error ? err.message : String(err)}`);
+      // Without the team's states nothing can be mapped, and pushing anyway
+      // would send title and priority while silently dropping status.
+      result.errors.push(`Skipped push: could not resolve the team's workflow states: ${err instanceof Error ? err.message : String(err)}`);
+      return result;
+    }
+
+    if (!stateIds.done) {
+      result.errors.push(`No Linear workflow state matches "${config.statusMap.done}" — completed todos cannot close their issues.`);
     }
 
     for (const todo of currentTodos) {
-      if (todo.status === "done") continue;
-
       if (!todo.linearId) {
+        // A todo finished before it ever reached Linear does not need an issue
+        // opened just to close it again.
+        if (todo.status === "done") continue;
+
+        // devctx_goodbye writes AI-suggested todos automatically. Creating a
+        // Linear issue for each of those would flood the team with machine
+        // output the user never asked for, so they stay local until promoted.
+        if (todo.source === "suggested") {
+          result.skipped++;
+          continue;
+        }
+
         // Push new unlinked todo to Linear
-        const stateId = findStateId(teamStates, config.statusMap, todo.status);
+        const stateId = stateIds[todo.status];
         if (!stateId) {
           result.errors.push(`No Linear state found for status "${todo.status}" for todo "${todo.text}"`);
           continue;
@@ -364,26 +515,29 @@ export async function syncWithLinear(
             todo.text,
             priorityToLinear(todo.priority)
           );
-          updateTodo(repoRoot, todo.id, {
+          markTodoSynced(repoRoot, todo.id, {
             linearId: created.id,
             linearUrl: created.url,
             linearIdentifier: created.identifier,
-            linearSyncedAt: now,
           });
           result.pushed++;
         } catch (err) {
           result.errors.push(`Failed to push todo "${todo.text}": ${err instanceof Error ? err.message : String(err)}`);
         }
       } else if (!todo.linearSyncedAt || todo.updated > todo.linearSyncedAt) {
-        // Push updates for already-linked todos where devctx is newer
-        const stateId = findStateId(teamStates, config.statusMap, todo.status);
+        // Push updates for already-linked todos where devctx is newer. This is
+        // the path that closes an issue when the todo is marked done.
+        const stateId = stateIds[todo.status];
+        if (!stateId) {
+          result.errors.push(`No Linear state matches status "${todo.status}" for ${todo.linearIdentifier ?? todo.text} — status not synced`);
+        }
         try {
           await updateLinearIssue(apiKey, todo.linearId, {
             ...(stateId ? { stateId } : {}),
             priority: priorityToLinear(todo.priority),
             title: todo.text,
           });
-          updateTodo(repoRoot, todo.id, { linearSyncedAt: now });
+          markTodoSynced(repoRoot, todo.id);
           result.updated++;
         } catch (err) {
           result.errors.push(`Failed to update Linear issue ${todo.linearIdentifier}: ${err instanceof Error ? err.message : String(err)}`);

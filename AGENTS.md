@@ -1,6 +1,6 @@
 # devctx-mcp-server
 
-MCP server that gives Claude Code persistent project context across sessions. Tracks focus, todos, branch notes, activity log, and generates AI narrative summaries.
+MCP server that gives coding agents persistent project context across sessions. Tracks focus, todos, branch notes, activity log, and generates AI narrative summaries. Written for Claude Code, and equally usable from Codex over MCP.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ MCP server that gives Claude Code persistent project context across sessions. Tr
 - **Protocol:** MCP (Model Context Protocol) via `@modelcontextprotocol/sdk`; `@anthropic-ai/sdk` for narratives
 - **Entry point:** `src/index.ts` — registers all 21 tools with Zod schemas
 - **State storage:** `.devctx/` directory in each tracked project (JSON files, gitignored)
-- **Context sync:** Writes a `<!-- devctx -->` section to each project's `CLAUDE.md`
+- **Context sync:** `updateContextFiles` writes a marker-delimited devctx section to the project's `CLAUDE.md`, and to `AGENTS.md` when that file already exists
 
 ## Source layout
 
@@ -20,7 +20,7 @@ src/
     git.ts              # Git operations (status, branches, commits, init, commit, push, pull, checkout, merge, stash)
     hooks.ts            # Git hook templates and installer (post-commit, post-checkout, post-merge, pre-push)
     dashboard.ts        # ASCII status dashboard renderer
-    narrative.ts        # AI summary + goodbye session summary via Claude API (with deterministic fallback)
+    narrative.ts        # AI summary + goodbye session summary via the Anthropic API (with deterministic fallback)
     version.ts          # Semver tag suggestions from commits since the last tag (AI, with fallback)
     ai-status.ts        # Classifies and records why the last Anthropic call failed
     format.ts           # Text formatters for whereami, todos, activity
@@ -45,15 +45,15 @@ slash-commands/         # Source of truth: 14 commands, symlinked to ~/.claude/c
 - Auto-session-start fires exactly once per MCP process via module-level `sessionStarted` flag
 - Write tools check `guardActive()` and `guardInitialized()` before proceeding
 - `logActivity()` appends to `.devctx/activity.log` with `appendFileSync` — one JSON object per line, and the git hooks append to the same file from other terminals, so a read-modify-write would drop their entries
-- Git hooks also append to `activity.log` from any terminal (POSIX shell, marker-based)
 - The dashboard is pure text (no ANSI, no box-drawing) to render cleanly in any terminal
 - Narrative service falls back to a deterministic summary when `ANTHROPIC_API_KEY` is not set, when the key is rejected, or when the API call fails for any other reason
-- AI call sites must never write to stderr — that makes Claude Code flag the MCP server as failed. They record the reason via `recordAiFailure()` in `ai-status.ts` instead, and `aiStatusBanner()` reports it in tool output
+- AI call sites must never write to stderr — that makes the host flag the MCP server as failed. They record the reason via `recordAiFailure()` in `ai-status.ts` instead, and `aiStatusBanner()` reports it in tool output
+- `.devctx/` JSON and the agent context files are written through `writeFileAtomic()` (temp file plus rename) in `shared/data.ts` — the server takes a SIGHUP when the host exits, and a truncated state file used to read as empty and then get saved over
+- Unparseable state files are renamed to `<name>.corrupt-<timestamp>` rather than treated as empty
+- The context section is located by the LAST marker pair in the file, so prose that names the markers is not mistaken for the generated block
+- `readContextFile()` and `existingContextFiles()` in `shared/data.ts` are how everything else finds the context files. Goodbye reads whichever exists for its narrative prompt and commits all of them
 - `devctx_goodbye` saves session records to `.devctx/sessions/` and auto-generates suggested todos
 - Todos have `source?: "manual" | "suggested" | "linear"` — suggested todos shown with `[suggested]` tag; Linear-linked todos show `[PROJ-123]` identifier
-- `.devctx/` JSON and the agent context files are written through `writeFileAtomic()` (temp file plus rename) in `shared/data.ts` — the server takes a SIGHUP when Claude Code exits, and a truncated state file used to read as empty and then get saved over
-- Unparseable state files are renamed to `<name>.corrupt-<timestamp>` rather than treated as empty
-- Context sync (`updateContextFiles`, tool param `sync_context`) writes the devctx section to `CLAUDE.md`, and to `AGENTS.md` when that file already exists
 
 ## Hosts
 

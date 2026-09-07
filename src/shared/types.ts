@@ -28,6 +28,7 @@ export interface Todo {
   linearUrl?: string;         // https://linear.app/team/issue/PROJ-123
   linearIdentifier?: string;  // human-readable "PROJ-123"
   linearSyncedAt?: string;    // ISO timestamp of last sync
+  linearSyncError?: string;   // why the last push to Linear failed, if it did
 }
 
 export interface LinearConfig {
@@ -41,6 +42,12 @@ export interface LinearConfig {
     blocked: string;      // default: "Blocked"
   };
   defaultPriority: number;  // Linear int: 1=Urgent, 2=High, 3=Medium, 4=Low
+  /**
+   * Resolved workflow state IDs for this team, keyed by devctx status.
+   * Cached so a single todo update can push its status without first listing
+   * teams. Refreshed on every full devctx_linear_sync.
+   */
+  stateIds?: Partial<Record<Todo["status"], string>>;
 }
 
 export interface ActivityEntry {

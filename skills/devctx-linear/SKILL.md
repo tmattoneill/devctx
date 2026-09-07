@@ -3,6 +3,8 @@ name: devctx-linear
 description: "Sync devctx todos with Linear issues in either direction. Use when the user mentions Linear, or asks to pull issues in or push todos out to their tracker."
 ---
 
+<!-- Generated from slash-commands/devctx-linear.md by scripts/gen-skills.mjs. Do not edit. -->
+
 Sync Linear issues with devctx todos.
 
 - To configure Linear for this project: call devctx_linear_sync with configure=true

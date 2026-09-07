@@ -27,7 +27,6 @@ export interface ProjectScan {
   // Project stats
   fileCount: number;
   hasReadme: boolean;
-  hasClaudeMd: boolean;
   hasEnvFile: boolean;
   hasLicense: boolean;
   hasTests: boolean;
@@ -135,7 +134,6 @@ export function scanProject(rootDir: string): ProjectScan {
     infra: [],
     fileCount,
     hasReadme: fileExists(rootDir, "README.md") || fileExists(rootDir, "readme.md"),
-    hasClaudeMd: fileExists(rootDir, "CLAUDE.md"),
     hasEnvFile: fileExists(rootDir, ".env") || fileExists(rootDir, ".env.example") || fileExists(rootDir, ".env.local"),
     hasLicense: fileExists(rootDir, "LICENSE") || fileExists(rootDir, "LICENSE.md") || fileExists(rootDir, "LICENCE"),
     hasTests: false,
