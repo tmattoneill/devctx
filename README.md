@@ -14,11 +14,11 @@ devctx writes project state to disk — `.devctx/` in your repo root. Activity l
 
 ### 2. Structured todo tracking
 
-Not comments buried in code. Tracked, prioritised, branch-aware items that Claude can create, update, and complete through the MCP. Tag them, scope them to branches, filter by status. The `/devctx-goodbye` command even suggests new todos based on your session — tagged `[suggested]` so you can promote or dismiss them.
+Not comments buried in code. Tracked, prioritised, branch-aware items that Claude can create, update, and complete through the MCP. Tag them, scope them to branches, filter by status. The `devctx-goodbye` command even suggests new todos based on your session — tagged `[suggested]` so you can promote or dismiss them.
 
 ### 3. Stale project recovery
 
-You haven't touched a project in three weeks. You've completely lost mental context. Run `/devctx-status` and Claude tells you what you were doing, what's outstanding, what state the branches are in. It reads your session history, git log, todos, and branch notes to reconstruct the picture. No re-explanation needed.
+You haven't touched a project in three weeks. You've completely lost mental context. Run `devctx-status` and your agent tells you what you were doing, what's outstanding, what state the branches are in. It reads your session history, git log, todos, and branch notes to reconstruct the picture. No re-explanation needed.
 
 ## Dashboard
 
@@ -62,7 +62,7 @@ The first devctx tool call in any new conversation automatically resumes trackin
 
 The save button. Goodbye gathers your commits, activity, git status, and todos, then generates a session record with three sections: what happened, what's unfinished, and suggested next steps. It saves the record to `.devctx/sessions/`, auto-adds suggested todos, syncs CLAUDE.md, commits it, and pauses tracking.
 
-Next time you open the project, `/devctx-status` reads this file to tell you where you left off.
+Next time you open the project, `devctx-status` reads this file to tell you where you left off.
 
 ### Source TODO scanning
 
@@ -70,9 +70,9 @@ devctx scans your codebase for `TODO`, `FIXME`, `HACK`, and `XXX` comments durin
 
 ### AI narrative
 
-When you have an `ANTHROPIC_API_KEY` set, status and goodbye commands call `claude-sonnet-4-20250514` to generate a prose summary of your session — recent work, deploy status, prioritised next steps. Token limits are conservative (600 for status, 1200 for goodbye). Without the key, you get a deterministic fallback that's still useful.
+When you have an `ANTHROPIC_API_KEY` set, status, goodbye and version call `claude-sonnet-5` to generate a prose summary of your session — recent work, deploy status, prioritised next steps. Effort is pinned low and token budgets cover the reasoning as well as the prose (2000 for status, 4000 for goodbye, 1500 for version). Without the key you get a deterministic fallback that's still useful, and devctx tells you which one you got: a missing key, a rejected key and a retired model read differently in the output rather than all looking the same.
 
-## Tools (18)
+## Tools (21)
 
 | Tool | Type | Description |
 |------|------|-------------|
@@ -83,7 +83,7 @@ When you have an `ANTHROPIC_API_KEY` set, status and goodbye commands call `clau
 | `devctx_status` | read | Full dashboard with branches, todos, vitals, AI narrative |
 | `devctx_summary` | read | AI-generated narrative only |
 | `devctx_whereami` | read | Full project context dump |
-| `devctx_update_focus` | write | Set current focus → syncs to CLAUDE.md |
+| `devctx_update_focus` | write | Set current focus → syncs to the project context files |
 | `devctx_log` | write | Log commits, pushes, builds, deploys, milestones, merges |
 | `devctx_activity` | read | View activity log, filter by type |
 | `devctx_todo_add` | write | Add todo with priority, branch scope, tags |
@@ -94,6 +94,9 @@ When you have an `ANTHROPIC_API_KEY` set, status and goodbye commands call `clau
 | `devctx_branch_notes_save` | write | Save per-branch documentation |
 | `devctx_git` | read/write | Git operations with auto-logging |
 | `devctx_sync` | write | Force sync state → CLAUDE.md and AGENTS.md |
+| `devctx_linear_sync` | read/write | Two-way sync between todos and Linear issues |
+| `devctx_version` | write | Suggest and create a semver tag from commits since the last |
+| `devctx_help` | read | Command reference |
 
 Write tools respect the active/paused state. Read tools always work.
 
@@ -117,17 +120,20 @@ Each one is a thin wrapper around the matching `devctx_*` MCP tool, so you can a
 
 | Command | Purpose |
 |---------|---------|
-| `/devctx-init` | Initialise for current project |
-| `/devctx-status` | Full dashboard with AI recap |
-| `/devctx-summary` | AI narrative only |
-| `/devctx-whereami` | Complete context dump |
-| `/devctx-start` | Resume tracking |
-| `/devctx-stop` | Pause tracking |
-| `/devctx-goodbye` | Session wrap-up |
-| `/devctx-focus` | Set current focus |
-| `/devctx-todos` | Manage todos |
-| `/devctx-git` | Git operations with logging |
-| `/devctx-help` | Show available commands |
+| `devctx-init` | Initialise for current project |
+| `devctx-status` | Full dashboard with AI recap |
+| `devctx-summary` | AI narrative only |
+| `devctx-whereami` | Complete context dump |
+| `devctx-start` | Resume tracking |
+| `devctx-stop` | Pause tracking |
+| `devctx-goodbye` | Session wrap-up |
+| `devctx-focus` | Set current focus |
+| `devctx-todos` | Manage todos |
+| `devctx-git` | Git operations with logging |
+| `devctx-version` | Suggest and create a semver tag |
+| `devctx-linear` | Sync todos with Linear issues |
+| `devctx-help` | Show available commands |
+| `devctx-statusline` | Set up the status line (Claude Code only) |
 
 ## Installation
 
@@ -200,7 +206,7 @@ codex mcp add devctx --env ANTHROPIC_API_KEY=sk-ant-... --env LINEAR_API_KEY=lin
 
 ## Getting started
 
-Run `/devctx-init` in any directory. devctx detects your situation:
+Run `devctx-init` in any directory. devctx detects your situation:
 
 **New directory** — initialises git, creates `.devctx/`, installs hooks, makes first commit.
 
@@ -246,9 +252,12 @@ your-project/
 │   ├── activity.log          # JSONL, append-only (also written by git hooks)
 │   ├── todos.json            # Tracked todos with source tagging
 │   ├── source-todos.json     # Last source code TODO scan
+│   ├── statusline.json       # Cache read by the status line script
+│   ├── linear.json           # Linear team, user and workflow state IDs
 │   ├── sessions/             # Session records from goodbye
 │   └── branches/             # Per-branch notes
 ├── CLAUDE.md                 # Synced with devctx section between markers
+├── AGENTS.md                 # Same, when the repo keeps one for Codex
 └── ...
 ```
 
@@ -260,8 +269,8 @@ your-project/
 | `@modelcontextprotocol/sdk` | MCP server implementation |
 | `zod` | Input validation |
 | `fastify` | Dashboard HTTP server |
-| `react` | Dashboard frontend |
-| `vite` | Dashboard build tooling |
+| `react` | Dashboard frontend (dev dependency; bundled at build time) |
+| `vite` | Dashboard build tooling (dev dependency) |
 
 ## Free and open source
 

@@ -45,13 +45,15 @@ slash-commands/         # Source of truth: 14 commands, symlinked to ~/.claude/c
 - Auto-session-start fires exactly once per MCP process via module-level `sessionStarted` flag
 - Write tools check `guardActive()` and `guardInitialized()` before proceeding
 - `logActivity()` appends to `.devctx/activity.log` with `appendFileSync` — one JSON object per line, and the git hooks append to the same file from other terminals, so a read-modify-write would drop their entries
+- Git hooks also append to `activity.log` from any terminal (POSIX shell, marker-based)
 - The dashboard is pure text (no ANSI, no box-drawing) to render cleanly in any terminal
 - Narrative service falls back to a deterministic summary when `ANTHROPIC_API_KEY` is not set, when the key is rejected, or when the API call fails for any other reason
-- AI call sites must never write to stderr — that makes the host flag the MCP server as failed. They record the reason via `recordAiFailure()` in `ai-status.ts` instead, and `aiStatusBanner()` reports it in tool output
+- AI call sites must never write to stderr — that makes the host flag the MCP server as failed. They record the reason via `recordAiFailure()` in `ai-status.ts`, and `aiStatusBanner()` / `aiFallbackNote()` report it in tool output
 - `.devctx/` JSON and the agent context files are written through `writeFileAtomic()` (temp file plus rename) in `shared/data.ts` — the server takes a SIGHUP when the host exits, and a truncated state file used to read as empty and then get saved over
 - Unparseable state files are renamed to `<name>.corrupt-<timestamp>` rather than treated as empty
+- `updateContextFiles()` (tool param `sync_context`) updates whichever context files the repo already keeps, and creates `CLAUDE.md` only when the repo has neither. A Codex-only project never acquires a `CLAUDE.md`
+- `readContextFile()` and `existingContextFiles()` are how everything else finds them. Goodbye reads whichever exists for its narrative prompt and commits all of them
 - The context section is located by the LAST marker pair in the file, so prose that names the markers is not mistaken for the generated block
-- `readContextFile()` and `existingContextFiles()` in `shared/data.ts` are how everything else finds the context files. Goodbye reads whichever exists for its narrative prompt and commits all of them
 - `devctx_goodbye` saves session records to `.devctx/sessions/` and auto-generates suggested todos
 - Todos have `source?: "manual" | "suggested" | "linear"` — suggested todos shown with `[suggested]` tag; Linear-linked todos show `[PROJ-123]` identifier
 
@@ -86,7 +88,7 @@ npm run typecheck  # type-checks the tests and the dashboard client, which `buil
 npm test           # vitest
 ```
 
-Vitest covers `scanner.ts`, `version.ts`, `shared/data.ts` and `ai-status.ts`. The root `tsconfig.json` excludes test files and the dashboard client, so `npm run build` type-checks neither — run `npm run typecheck` for those.
+Vitest covers `scanner.ts`, `version.ts`, `shared/data.ts` and `ai-status.ts`, plus `durability.test.ts` (atomic writes, corrupt-file quarantine, activity-log appends, Linear sync markers, which context files get written) and `skills.test.ts` (the generated Codex skills match slash-commands and their frontmatter parses). 72 tests across 6 files. The root `tsconfig.json` excludes test files and the dashboard client, so `npm run build` type-checks neither — run `npm run typecheck` for those.
 
 ## Tools (21 total)
 
