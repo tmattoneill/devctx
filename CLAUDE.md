@@ -112,7 +112,7 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 07/09/2026, 10:23:40
+**Last Updated:** 07/09/2026, 15:50:45
 
 ### Active Todos
 - [ ] [high] Fix the broken .claude gitlink: it is committed as mode 160000 with no .gitmodules, so a clone gets an empty dir and neither settings.local.json nor CLAUDE.md (`main`)
