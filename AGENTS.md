@@ -8,7 +8,7 @@ MCP server that gives coding agents persistent project context across sessions. 
 - **Protocol:** MCP (Model Context Protocol) via `@modelcontextprotocol/sdk`; `@anthropic-ai/sdk` for narratives
 - **Entry point:** `src/index.ts` — registers all 21 tools with Zod schemas
 - **State storage:** `.devctx/` directory in each tracked project (JSON files, gitignored)
-- **Context sync:** `updateContextFiles` writes a marker-delimited devctx section to the project's `CLAUDE.md`, and to `AGENTS.md` when that file already exists
+- **Context sync:** `updateContextFiles` writes a marker-delimited devctx section to the project's `AGENTS.md` when that file exists, and never to `CLAUDE.md`
 
 ## Source layout
 
@@ -51,8 +51,8 @@ slash-commands/         # Source of truth: 14 commands, symlinked to ~/.claude/c
 - AI call sites must never write to stderr — that makes the host flag the MCP server as failed. They record the reason via `recordAiFailure()` in `ai-status.ts`, and `aiStatusBanner()` / `aiFallbackNote()` report it in tool output
 - `.devctx/` JSON and the agent context files are written through `writeFileAtomic()` (temp file plus rename) in `shared/data.ts` — the server takes a SIGHUP when the host exits, and a truncated state file used to read as empty and then get saved over
 - Unparseable state files are renamed to `<name>.corrupt-<timestamp>` rather than treated as empty
-- `updateContextFiles()` (tool param `sync_context`) updates whichever context files the repo already keeps, and creates `CLAUDE.md` only when the repo has neither. A Codex-only project never acquires a `CLAUDE.md`
-- `readContextFile()` and `existingContextFiles()` are how everything else finds them. Goodbye reads whichever exists for its narrative prompt and commits all of them
+- `updateContextFiles()` (tool param `sync_context`) writes the generated section to `AGENTS.md` only, and only when the repo already has one. It never creates a context file and never writes `CLAUDE.md`: the section is a snapshot, agents with the MCP tools read live state through `devctx_whereami`, and a stale copy among the binding rules in `CLAUDE.md` costs context and git churn every session. Earlier versions wrote the section to `CLAUDE.md`, so each sync removes any copy it finds there (skipped when `CLAUDE.md` and `AGENTS.md` are one file through a symlink). Writes go to the symlink's real path so a linked pair stays linked
+- `readContextFile()` and `existingContextFiles()` are how everything else finds the instruction files. Goodbye reads whichever exists for its narrative prompt (CLAUDE.md first) and commits all of them, which picks up both the `AGENTS.md` snapshot and a one-off strip from `CLAUDE.md`
 - The context section is located by the LAST marker pair in the file, so prose that names the markers is not mistaken for the generated block
 - `devctx_goodbye` saves session records to `.devctx/sessions/` and auto-generates suggested todos
 - Todos have `source?: "manual" | "suggested" | "linear"` — suggested todos shown with `[suggested]` tag; Linear-linked todos show `[PROJ-123]` identifier
@@ -88,7 +88,7 @@ npm run typecheck  # type-checks the tests and the dashboard client, which `buil
 npm test           # vitest
 ```
 
-Vitest covers `scanner.ts`, `version.ts`, `shared/data.ts` and `ai-status.ts`, plus `durability.test.ts` (atomic writes, corrupt-file quarantine, activity-log appends, Linear sync markers, which context files get written) and `skills.test.ts` (the generated Codex skills match slash-commands and their frontmatter parses). 72 tests across 6 files. The root `tsconfig.json` excludes test files and the dashboard client, so `npm run build` type-checks neither — run `npm run typecheck` for those.
+Vitest covers `scanner.ts`, `version.ts`, `shared/data.ts` and `ai-status.ts`, plus `durability.test.ts` (atomic writes, corrupt-file quarantine, activity-log appends, Linear sync markers, which context files get written and stripped) and `skills.test.ts` (the generated Codex skills match slash-commands and their frontmatter parses). 78 tests across 6 files. The root `tsconfig.json` excludes test files and the dashboard client, so `npm run build` type-checks neither — run `npm run typecheck` for those.
 
 ## Tools (21 total)
 
@@ -112,7 +112,7 @@ devctx_init, devctx_start, devctx_stop, devctx_goodbye, devctx_status, devctx_su
 **Project:** Project-aware development context tracker for Claude Code. Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md.
 
 **Branch:** `main`
-**Last Updated:** 07/09/2026, 10:23:40
+**Last Updated:** 06/10/2026, 08:11:28
 
 ### Active Todos
 - [ ] [high] Fix the broken .claude gitlink: it is committed as mode 160000 with no .gitmodules, so a clone gets an empty dir and neither settings.local.json nor CLAUDE.md (`main`)

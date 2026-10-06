@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, appendFileSync, renameSync, unlinkSync, mkdirSync, existsSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, appendFileSync, renameSync, unlinkSync, mkdirSync, existsSync, readdirSync, realpathSync } from "fs";
 import { join } from "path";
 import { createHash, randomBytes } from "crypto";
 import type { ProjectState, Todo, ActivityEntry, SourceTodo, LinearConfig } from "./types.js";
@@ -515,16 +515,15 @@ export function updateStatusLineCache(repoRoot: string, branch: string): void {
 
 // --- Agent context file management ---
 
-/**
- * Files that carry the devctx context section, in preference order.
- *
- * devctx updates whichever of these the repo already has and creates none of
- * them beyond the default. A Claude project keeps CLAUDE.md, a Codex project
- * keeps AGENTS.md, a project that wants both gets both, and a project with
- * neither gets CLAUDE.md.
- */
 const CLAUDE_MD = "CLAUDE.md";
-export const AGENT_CONTEXT_FILES = [CLAUDE_MD, "AGENTS.md"];
+const AGENTS_MD = "AGENTS.md";
+
+/**
+ * The files a repo keeps agent instructions in, in preference order. These are
+ * what goodbye commits and what the narrative reads. Only AGENTS.md carries the
+ * generated devctx section; see updateContextFiles.
+ */
+export const AGENT_CONTEXT_FILES = [CLAUDE_MD, AGENTS_MD];
 
 /** The context files this repo actually has, in preference order. */
 export function existingContextFiles(repoRoot: string): string[] {
@@ -549,42 +548,99 @@ export function readContextFile(repoRoot: string): { filename: string; content: 
   return null;
 }
 
-export function updateContextFiles(repoRoot: string, branch: string, state: ProjectState, todos: Todo[]): void {
-  const activeTodos = todos.filter((t) => t.status !== "done");
-  const devctxSection = builddevctxSection(branch, state, activeTodos);
+const START_MARKER = "<!-- DEVCTX:START -->";
+const END_MARKER = "<!-- DEVCTX:END -->";
 
-  // Update the context files the repo already keeps. A Codex-only project with
-  // just AGENTS.md should not acquire a CLAUDE.md it never asked for, and a
-  // Claude project should not acquire an AGENTS.md. When a repo has neither,
-  // CLAUDE.md is the default.
-  const existing = existingContextFiles(repoRoot);
-  const targets = existing.length > 0 ? existing : [CLAUDE_MD];
+/**
+ * Find the generated section by its LAST marker pair, not the first.
+ * Documentation that mentions the marker in prose would otherwise be read as
+ * the start of the generated block, and everything from that sentence onward
+ * would be replaced — the file documenting this feature is the likeliest
+ * casualty.
+ */
+function findDevctxSection(content: string): { start: number; end: number } | null {
+  const endIndex = content.lastIndexOf(END_MARKER);
+  if (endIndex === -1) return null;
+  const startIndex = content.lastIndexOf(START_MARKER, endIndex);
+  if (startIndex === -1) return null;
+  return { start: startIndex, end: endIndex + END_MARKER.length };
+}
 
-  for (const filename of targets) {
-    const path = join(repoRoot, filename);
-    let content = existsSync(path) ? readFileSync(path, "utf-8") : "";
+/**
+ * The real path behind a context file. Many repos keep one file and symlink
+ * the other name to it, and writeFileAtomic renames over its target, which
+ * would replace the symlink with a regular file.
+ */
+function resolveContextPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
 
-    // Replace or append the devctx section
-    const startMarker = "<!-- DEVCTX:START -->";
-    const endMarker = "<!-- DEVCTX:END -->";
+export interface ContextSyncResult {
+  /** Files that now carry the devctx section. */
+  written: string[];
+  /** Files the section was removed from. */
+  stripped: string[];
+}
 
-    // Anchor on the LAST marker pair, not the first. Documentation that
-    // mentions the marker in prose would otherwise be read as the start of the
-    // generated block, and everything from that sentence onward would be
-    // replaced — the file documenting this feature is the likeliest casualty.
-    const endIndex = content.lastIndexOf(endMarker);
-    const startIndex = endIndex === -1 ? -1 : content.lastIndexOf(startMarker, endIndex);
+/**
+ * Keep the generated devctx section in AGENTS.md, and nowhere else.
+ *
+ * The section is a snapshot taken at the last sync. Agents that can reach the
+ * devctx MCP server read live state through devctx_whereami, so a copy in
+ * CLAUDE.md only goes stale, sits among the binding rules, costs context every
+ * session, and puts a diff in git on every goodbye. AGENTS.md keeps it for
+ * agents that cannot call the tools.
+ *
+ * AGENTS.md is opt-in: devctx updates it when the repo has one and never
+ * creates it, so a Claude-only repo ends up with no section at all. CLAUDE.md
+ * is never written. Earlier versions put the section there, so any copy found
+ * is removed, which also stops a frozen one from lingering in repos that were
+ * synced before.
+ */
+export function updateContextFiles(repoRoot: string, branch: string, state: ProjectState, todos: Todo[]): ContextSyncResult {
+  const result: ContextSyncResult = { written: [], stripped: [] };
+  const claudePath = join(repoRoot, CLAUDE_MD);
+  const agentsPath = join(repoRoot, AGENTS_MD);
+  const agentsExists = existsSync(agentsPath);
 
-    if (startIndex !== -1 && endIndex !== -1) {
-      const before = content.substring(0, startIndex);
-      const after = content.substring(endIndex + endMarker.length);
-      content = before + devctxSection + after;
+  // When one file is a symlink to the other, the section belongs there and
+  // stripping the CLAUDE.md name would strip AGENTS.md too.
+  const sharesFileWithAgents = agentsExists && existsSync(claudePath)
+    && resolveContextPath(claudePath) === resolveContextPath(agentsPath);
+
+  if (existsSync(claudePath) && !sharesFileWithAgents) {
+    const content = readFileSync(claudePath, "utf-8");
+    const section = findDevctxSection(content);
+    if (section) {
+      const kept = [content.substring(0, section.start).trimEnd(), content.substring(section.end).trim()]
+        .filter((part) => part.length > 0)
+        .join("\n\n");
+      writeFileAtomic(resolveContextPath(claudePath), kept ? kept + "\n" : "");
+      result.stripped.push(CLAUDE_MD);
+    }
+  }
+
+  if (agentsExists) {
+    const activeTodos = todos.filter((t) => t.status !== "done");
+    const devctxSection = builddevctxSection(branch, state, activeTodos);
+    let content = readFileSync(agentsPath, "utf-8");
+
+    const section = findDevctxSection(content);
+    if (section) {
+      content = content.substring(0, section.start) + devctxSection + content.substring(section.end);
     } else {
       content = content.trimEnd() + "\n\n" + devctxSection + "\n";
     }
 
-    writeFileAtomic(path, content);
+    writeFileAtomic(resolveContextPath(agentsPath), content);
+    result.written.push(AGENTS_MD);
   }
+
+  return result;
 }
 
 function builddevctxSection(branch: string, state: ProjectState, activeTodos: Todo[]): string {

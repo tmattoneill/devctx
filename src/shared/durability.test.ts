@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync, existsSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync, existsSync, symlinkSync, lstatSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
@@ -169,20 +169,20 @@ describe("agent context files", () => {
     workingSessions: [],
   };
 
-  it("writes the devctx section into AGENTS.md when that file exists", () => {
+  it("writes the devctx section into AGENTS.md, and leaves CLAUDE.md without one", () => {
     const dir = makeTempRepo();
     writeFileSync(join(dir, "CLAUDE.md"), "# Project\n");
     writeFileSync(join(dir, "AGENTS.md"), "# Project\n");
 
     const todo = addTodo(dir, "wire up the sync", "high");
-    updateContextFiles(dir, "main", state, [todo]);
+    const result = updateContextFiles(dir, "main", state, [todo]);
 
-    for (const file of ["CLAUDE.md", "AGENTS.md"]) {
-      const content = readFileSync(join(dir, file), "utf-8");
-      expect(content).toContain("<!-- DEVCTX:START -->");
-      expect(content).toContain("wiring the sync");
-      expect(content).toContain("wire up the sync");
-    }
+    const agents = readFileSync(join(dir, "AGENTS.md"), "utf-8");
+    expect(agents).toContain("<!-- DEVCTX:START -->");
+    expect(agents).toContain("wiring the sync");
+    expect(agents).toContain("wire up the sync");
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# Project\n");
+    expect(result).toEqual({ written: ["AGENTS.md"], stripped: [] });
   });
 
   it("refreshes a stale AGENTS.md section rather than appending a second one", () => {
@@ -201,12 +201,108 @@ describe("agent context files", () => {
     expect(content).toContain("current work");
   });
 
-  it("does not create AGENTS.md in a repo that has not opted in", () => {
+  it("creates neither file in a repo that has not opted in", () => {
     const dir = makeTempRepo();
+    const result = updateContextFiles(dir, "main", state, []);
+
+    expect(existsSync(join(dir, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
+    expect(result).toEqual({ written: [], stripped: [] });
+  });
+});
+
+describe("removing the section from CLAUDE.md", () => {
+  const state = {
+    projectName: "demo",
+    description: "a demo project",
+    currentFocus: "moving the section",
+    lastUpdated: new Date().toISOString(),
+    active: true,
+    workingSessions: [],
+  };
+
+  const generated = "<!-- DEVCTX:START -->\n## Project Context (auto-updated by devctx)\nold snapshot\n<!-- DEVCTX:END -->";
+
+  it("strips a section an earlier version wrote and keeps the rules around it", () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, "CLAUDE.md"), `# Rules\n\nUse pnpm.\n\n${generated}\n`);
+    writeFileSync(join(dir, "AGENTS.md"), "# Agents\n");
+
+    const result = updateContextFiles(dir, "main", state, []);
+
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# Rules\n\nUse pnpm.\n");
+    expect(result.stripped).toEqual(["CLAUDE.md"]);
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf-8")).toContain("moving the section");
+  });
+
+  it("strips it even when the repo has no AGENTS.md, so the old copy cannot go stale", () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, "CLAUDE.md"), `# Rules\n\n${generated}\n`);
+
+    const result = updateContextFiles(dir, "main", state, []);
+
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# Rules\n");
+    expect(result).toEqual({ written: [], stripped: ["CLAUDE.md"] });
+    expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
+  });
+
+  it("keeps text that follows the section", () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, "CLAUDE.md"), `# Rules\n\n${generated}\n\n## After\n\nStill here.\n`);
+
     updateContextFiles(dir, "main", state, []);
 
-    expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
-    expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# Rules\n\n## After\n\nStill here.\n");
+  });
+
+  it("does not eat prose that mentions the marker when it strips", () => {
+    const dir = makeTempRepo();
+    writeFileSync(
+      join(dir, "CLAUDE.md"),
+      `- Context sync writes a \`<!-- DEVCTX:START -->\` section\n\n## Build\n\nnpm run build\n\n${generated}\n`,
+    );
+
+    updateContextFiles(dir, "main", state, []);
+
+    const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+    expect(content).toContain("Context sync writes a");
+    expect(content).toContain("npm run build");
+    expect(content).not.toContain("old snapshot");
+  });
+
+  it("leaves a CLAUDE.md with no section byte-for-byte alone", () => {
+    const dir = makeTempRepo();
+    const original = "# Rules\n\n\nodd   spacing kept\n";
+    writeFileSync(join(dir, "CLAUDE.md"), original);
+
+    const result = updateContextFiles(dir, "main", state, []);
+
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe(original);
+    expect(result.stripped).toEqual([]);
+  });
+
+  it("does not strip CLAUDE.md when it is a symlink to AGENTS.md", () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, "AGENTS.md"), "# Shared rules\n");
+    symlinkSync("AGENTS.md", join(dir, "CLAUDE.md"));
+
+    const result = updateContextFiles(dir, "main", state, []);
+
+    expect(lstatSync(join(dir, "CLAUDE.md")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(dir, "AGENTS.md")).isSymbolicLink()).toBe(false);
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf-8")).toContain("moving the section");
+    expect(result).toEqual({ written: ["AGENTS.md"], stripped: [] });
+  });
+
+  it("keeps AGENTS.md a symlink when it points at CLAUDE.md", () => {
+    const dir = makeTempRepo();
+    writeFileSync(join(dir, "CLAUDE.md"), "# Shared rules\n");
+    symlinkSync("CLAUDE.md", join(dir, "AGENTS.md"));
+
+    updateContextFiles(dir, "main", state, []);
+
+    expect(lstatSync(join(dir, "AGENTS.md")).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toContain("moving the section");
   });
 });
 
@@ -224,11 +320,11 @@ describe("devctx section markers", () => {
     const dir = makeTempRepo();
     // A doc describing this very feature names the marker in a sentence.
     writeFileSync(
-      join(dir, "CLAUDE.md"),
+      join(dir, "AGENTS.md"),
       [
         "# Project",
         "",
-        "- **Context sync:** writes a `<!-- DEVCTX:START -->` section to CLAUDE.md",
+        "- **Context sync:** writes a `<!-- DEVCTX:START -->` section to AGENTS.md",
         "",
         "## Build",
         "",
@@ -243,7 +339,7 @@ describe("devctx section markers", () => {
 
     updateContextFiles(dir, "main", state, []);
 
-    const content = readFileSync(join(dir, "CLAUDE.md"), "utf-8");
+    const content = readFileSync(join(dir, "AGENTS.md"), "utf-8");
     expect(content).toContain("## Build");
     expect(content).toContain("npm run build");
     expect(content).toContain("**Context sync:**");
@@ -299,21 +395,13 @@ describe("which context files devctx writes", () => {
     expect(existsSync(join(dir, "CLAUDE.md"))).toBe(false);
   });
 
-  it("leaves a Claude-only repo alone: updates CLAUDE.md, creates no AGENTS.md", () => {
+  it("leaves a Claude-only repo alone: no section in CLAUDE.md, no AGENTS.md created", () => {
     const dir = makeTempRepo();
     writeFileSync(join(dir, "CLAUDE.md"), "# Claude project\n");
 
     updateContextFiles(dir, "main", state, []);
 
-    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toContain("staying in our lane");
-    expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
-  });
-
-  it("defaults to CLAUDE.md when the repo has neither", () => {
-    const dir = makeTempRepo();
-    updateContextFiles(dir, "main", state, []);
-
-    expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# Claude project\n");
     expect(existsSync(join(dir, "AGENTS.md"))).toBe(false);
   });
 });

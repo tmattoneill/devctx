@@ -11,4 +11,4 @@ End-of-session wrap-up. Before calling the goodbye tool, handle any uncommitted 
    - Otherwise: tell the user there are uncommitted changes and ask if they'd like to commit before wrapping up. If yes, stage all changes, generate a good commit message from the diff, and commit. If no, proceed without committing.
 3. Call the `devctx_goodbye` tool. If the user provided a message (other than "commit"), pass it as the message parameter.
 
-The goodbye tool will automatically sync and commit the project context files (CLAUDE.md, and AGENTS.md when the repo keeps one) as its final step.
+The goodbye tool will automatically sync and commit the project context files (the devctx section in AGENTS.md when the repo keeps one) as its final step.

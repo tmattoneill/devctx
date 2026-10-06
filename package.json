@@ -1,7 +1,7 @@
 {
   "name": "devctx-mcp-server",
   "version": "1.1.1",
-  "description": "Project-aware development context tracker for coding agents (Claude Code, Codex). Logs git activity, tracks todos, maintains branch notes, and updates CLAUDE.md and AGENTS.md.",
+  "description": "Project-aware development context tracker for coding agents (Claude Code, Codex). Logs git activity, tracks todos, maintains branch notes, and keeps a context snapshot in AGENTS.md.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

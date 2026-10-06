@@ -16,6 +16,7 @@ import {
   saveSessionRecord,
   getLinearConfig, saveLinearConfig, markTodoSynced, markTodoSyncFailed,
   readContextFile, existingContextFiles,
+  type ContextSyncResult,
 } from "./shared/index.js";
 import { fetchViewerAndTeams, syncWithLinear, pushLinkedTodo } from "./services/linear.js";
 import { formatWhereAmI, formatTodoList, formatActivityLog } from "./services/format.js";
@@ -67,10 +68,19 @@ function guardInitialized(repoRoot: string): { content: Array<{ type: "text"; te
   return null;
 }
 
-/** Sync both CLAUDE.md and status line cache in one call */
-function syncSideEffects(repoRoot: string, branch: string, state: ReturnType<typeof getProjectState>, todos: ReturnType<typeof getTodos>): void {
-  updateContextFiles(repoRoot, branch, state, todos);
+/** Sync the AGENTS.md context section and the status line cache in one call */
+function syncSideEffects(repoRoot: string, branch: string, state: ReturnType<typeof getProjectState>, todos: ReturnType<typeof getTodos>): ContextSyncResult {
+  const result = updateContextFiles(repoRoot, branch, state, todos);
   updateStatusLineCache(repoRoot, branch);
+  return result;
+}
+
+/** One line saying which files a sync touched, for tool output */
+function describeContextSync(result: ContextSyncResult): string {
+  const parts: string[] = [];
+  if (result.written.length > 0) parts.push(`updated ${result.written.join(", ")}`);
+  if (result.stripped.length > 0) parts.push(`removed the old devctx section from ${result.stripped.join(", ")}`);
+  return parts.length > 0 ? parts.join("; ") : "no AGENTS.md in this repo, so no context file was written";
 }
 
 // --- Auto-session-start ---
@@ -189,11 +199,11 @@ server.registerTool(
   "devctx_update_focus",
   {
     title: "Update Project Focus",
-    description: `Update what you're currently working on. This sets the "current focus" shown in whereami and optionally updates the project description. Also syncs to CLAUDE.md (and AGENTS.md when present) so future sessions pick up the context.`,
+    description: `Update what you're currently working on. This sets the "current focus" shown in whereami and optionally updates the project description. Also syncs to AGENTS.md when the repo has one, for agents that cannot call devctx tools.`,
     inputSchema: {
       focus: z.string().min(1).max(500).describe("What you're currently working on"),
       description: z.string().max(1000).optional().describe("Optional project description update"),
-      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present) with the new focus"),
+      sync_context: z.boolean().default(true).describe("Whether to update AGENTS.md (when present) with the new focus"),
     },
     annotations: {
       readOnlyHint: false,
@@ -319,13 +329,13 @@ server.registerTool(
   "devctx_todo_add",
   {
     title: "Add Todo",
-    description: `Add a new todo item. Todos can be scoped to a branch, prioritized, and tagged. They appear in whereami and can be synced to CLAUDE.md (and AGENTS.md when present).`,
+    description: `Add a new todo item. Todos can be scoped to a branch, prioritized, and tagged. They appear in whereami and can be synced to AGENTS.md when the repo has one.`,
     inputSchema: {
       text: z.string().min(1).max(500).describe("The todo item text"),
       priority: z.enum(["low", "medium", "high", "critical"]).default("medium").describe("Priority level"),
       branch: z.string().optional().describe("Scope todo to a specific branch (defaults to current)"),
       tags: z.array(z.string()).optional().describe("Optional tags for categorization"),
-      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present)"),
+      sync_context: z.boolean().default(true).describe("Whether to update AGENTS.md (when present)"),
     },
     annotations: {
       readOnlyHint: false,
@@ -378,7 +388,7 @@ server.registerTool(
       priority: z.enum(["low", "medium", "high", "critical"]).optional().describe("Updated priority"),
       tags: z.array(z.string()).optional().describe("Updated tags"),
       promote: z.boolean().optional().describe("Mark an AI-suggested todo as one you own. Suggested todos are never pushed to Linear until promoted."),
-      sync_context: z.boolean().default(true).describe("Whether to update CLAUDE.md (and AGENTS.md when present)"),
+      sync_context: z.boolean().default(true).describe("Whether to update AGENTS.md (when present)"),
       sync_linear: z.boolean().default(true).describe("Whether to push status/priority changes to Linear if the todo has a linearId and LINEAR_API_KEY is set"),
     },
     annotations: {
@@ -579,7 +589,7 @@ server.registerTool(
   "devctx_sync",
   {
     title: "Sync project context files",
-    description: `Force a sync of the current devctx state (focus, todos, branch info) into CLAUDE.md, and into AGENTS.md when the repo keeps one. This updates the auto-managed section between the devctx markers.`,
+    description: `Force a sync of the current devctx state (focus, todos, branch info) into the auto-managed section between the devctx markers in AGENTS.md. Writes nothing when the repo has no AGENTS.md. Never writes CLAUDE.md, and removes any section an earlier version left there.`,
     inputSchema: {},
     annotations: {
       readOnlyHint: false,
@@ -597,10 +607,10 @@ server.registerTool(
     const branch = getCurrentBranch(repoRoot);
     const state = getProjectState(repoRoot);
     const todos = getTodos(repoRoot);
-    syncSideEffects(repoRoot, branch, state, todos);
+    const contextSync = syncSideEffects(repoRoot, branch, state, todos);
 
     return {
-      content: [{ type: "text", text: `✅ Project context synced.\nBranch: \`${branch}\` | Focus: ${state.currentFocus || "(not set)"} | Active todos: ${todos.filter((t) => t.status !== "done").length}` }],
+      content: [{ type: "text", text: `✅ Project context synced: ${describeContextSync(contextSync)}.\nBranch: \`${branch}\` | Focus: ${state.currentFocus || "(not set)"} | Active todos: ${todos.filter((t) => t.status !== "done").length}` }],
     };
   }
 );
@@ -615,7 +625,7 @@ server.registerTool(
     description: `Initialize devctx for the current directory. Handles all scenarios:
 - Empty directory: creates git repo, .devctx structure, initial commit
 - Files but no git: initializes git, scans project, creates .devctx, initial commit
-- Existing git repo: scans project, creates .devctx, syncs to CLAUDE.md (and AGENTS.md when present)
+- Existing git repo: scans project, creates .devctx, syncs to AGENTS.md when present
 - Already initialized: shows current state (use force to re-scan and update)
 
 Auto-detects: language, frameworks, build tools, CI/CD, infra, package metadata.
@@ -745,11 +755,11 @@ Safe to run multiple times — won't overwrite existing data without force flag.
       output.push(`  ⚠️ Hooks skipped: ${hookResult.skipped.join(", ")}`);
     }
 
-    // ── Step 8: Sync to CLAUDE.md (skip for truly empty projects) ──
+    // ── Step 8: Sync to AGENTS.md (skip for truly empty projects) ──
     if (scan.environment !== "empty" || focus) {
       const todos = getTodos(repoRoot);
-      syncSideEffects(repoRoot, branch, state, todos);
-      output.push("  ✅ Project context updated");
+      const contextSync = syncSideEffects(repoRoot, branch, state, todos);
+      output.push(`  ✅ Project context: ${describeContextSync(contextSync)}`);
     }
 
     // ── Step 9: Build the report ──
@@ -1489,12 +1499,13 @@ server.registerTool(
       // Clean up todos: remove resolved, deduplicate
       const cleanup = cleanupTodos(repoRoot);
 
-      // Sync CLAUDE.md + status line cache, auto-commit, and push so we leave clean
+      // Sync AGENTS.md + status line cache, auto-commit, and push so we leave clean
       const updatedState = getProjectState(repoRoot);
       const updatedTodos = getTodos(repoRoot);
       syncSideEffects(repoRoot, branch, updatedState, updatedTodos);
-      // Commit every context file that exists, not just CLAUDE.md — syncSideEffects
-      // has just rewritten AGENTS.md too where the repo keeps one.
+      // Commit every context file that exists. syncSideEffects rewrites AGENTS.md
+      // and, once per repo, strips the old section out of CLAUDE.md, so either can
+      // be dirty; git add on an unchanged file is a no-op.
       const committed = commitFiles(repoRoot, existingContextFiles(repoRoot), "devctx: session goodbye");
       if (committed) {
         try { gitPush(repoRoot); } catch { /* best effort — offline is fine */ }
@@ -1751,7 +1762,7 @@ If LINEAR_API_KEY is not set, returns a helpful error explaining how to configur
         branch,
       });
 
-      // Sync CLAUDE.md and status line
+      // Sync AGENTS.md and status line
       const state = getProjectState(repoRoot);
       const todos = getTodos(repoRoot);
       syncSideEffects(repoRoot, branch, state, todos);
@@ -1832,7 +1843,7 @@ server.registerTool(
       "",
       "## How it works",
       "",
-      "devctx tracks project context in a `.devctx/` directory (gitignored) and syncs key info to `CLAUDE.md`, and to `AGENTS.md` when your repo keeps one.",
+      "devctx tracks project context in a `.devctx/` directory (gitignored). It writes a snapshot of focus and todos to `AGENTS.md` when your repo keeps one, and never to `CLAUDE.md`. Agents with the devctx tools read live state through `devctx_whereami` instead.",
       "Git hooks capture commits, branch switches, merges, and pushes from any terminal.",
       "On new sessions, tracking resumes automatically and your agent greets you with project context.",
       "Run `devctx-goodbye` when you're done to save a session record for next time.",

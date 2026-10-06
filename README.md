@@ -35,7 +35,7 @@ Flags: `--port`, `--no-open`, `--dev`. Ctrl+C to stop.
 
 devctx runs as a **global MCP server** that's **project-scoped**. One installation, per-repo state. It detects which git repo you're in and maintains a `.devctx/` directory there.
 
-It syncs key state to your `CLAUDE.md` between markers — focus, branch, active todos — so Claude has context before any tool is called. Everything outside the markers is untouched.
+If your repo keeps an `AGENTS.md`, devctx writes a snapshot of key state into it between markers: focus, branch, active todos. That serves agents that cannot call the devctx tools. Agents that can call them read live state through `devctx_whereami`, so devctx does not write to `CLAUDE.md`. If an earlier version left a section there, the next sync removes it. Everything outside the markers is untouched, and devctx never creates `AGENTS.md`.
 
 ### Git hooks (passive capture)
 
@@ -60,7 +60,7 @@ The first devctx tool call in any new conversation automatically resumes trackin
 /devctx-goodbye picking this up Thursday, blocked on API key from Dave
 ```
 
-The save button. Goodbye gathers your commits, activity, git status, and todos, then generates a session record with three sections: what happened, what's unfinished, and suggested next steps. It saves the record to `.devctx/sessions/`, auto-adds suggested todos, syncs CLAUDE.md, commits it, and pauses tracking.
+The save button. Goodbye gathers your commits, activity, git status, and todos, then generates a session record with three sections: what happened, what's unfinished, and suggested next steps. It saves the record to `.devctx/sessions/`, auto-adds suggested todos, syncs AGENTS.md when the repo has one, commits the context files, and pauses tracking.
 
 Next time you open the project, `devctx-status` reads this file to tell you where you left off.
 
@@ -93,7 +93,7 @@ When you have an `ANTHROPIC_API_KEY` set, status, goodbye and version call `clau
 | `devctx_branch_notes` | read | Get per-branch markdown notes |
 | `devctx_branch_notes_save` | write | Save per-branch documentation |
 | `devctx_git` | read/write | Git operations with auto-logging |
-| `devctx_sync` | write | Force sync state → CLAUDE.md and AGENTS.md |
+| `devctx_sync` | write | Force sync state → AGENTS.md (when the repo has one) |
 | `devctx_linear_sync` | read/write | Two-way sync between todos and Linear issues |
 | `devctx_version` | write | Suggest and create a semver tag from commits since the last |
 | `devctx_help` | read | Command reference |
@@ -223,7 +223,7 @@ The scanner detects languages (JS, TS, Python, Rust, Go, Java, and more), framew
 ```
 > I'm working on the payment integration
 ```
-Updates focus, syncs to CLAUDE.md.
+Updates focus, syncs to AGENTS.md when the repo has one.
 
 ```
 > Add a high priority todo: fix the race condition in the webhook handler
@@ -256,8 +256,8 @@ your-project/
 │   ├── linear.json           # Linear team, user and workflow state IDs
 │   ├── sessions/             # Session records from goodbye
 │   └── branches/             # Per-branch notes
-├── CLAUDE.md                 # Synced with devctx section between markers
-├── AGENTS.md                 # Same, when the repo keeps one for Codex
+├── CLAUDE.md                 # Yours. devctx never writes it
+├── AGENTS.md                 # Gets the devctx section between markers, when the repo keeps one
 └── ...
 ```
 
